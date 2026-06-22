@@ -1,0 +1,124 @@
+# Home LLM Server — container stack.
+# Single source of truth for services. Steps 04a/04b explain how to deploy this
+# on Unraid vs HexOS/TrueNAS. Values in ${...} come from .env (see .env.example).
+name: home-llm
+
+services:
+  # ── Inference: llama-swap that launches TabbyAPI + ExLlamaV2 on demand ──────
+  # This is the ONLY GPU container. llama-swap reads its YAML, starts the right
+  # TabbyAPI process for the requested model, and unloads it when another model
+  # is needed — so models time-share the single GPU. Built locally (step 05).
+  inference:
+    build:
+      context: ./assets/inference
+    image: home-llm-inference:latest
+    container_name: inference
+    restart: unless-stopped
+    networks: [llmnet]
+    expose:
+      - "8080"                     # llama-swap OpenAI-compatible endpoint (internal only)
+    volumes:
+      - ./assets/llama-swap-config.yaml:/app/config.yaml:ro
+      - models:/models             # EXL2 model store (mounted from NVMe — steps 03a/03b)
+    environment:
+      - TABBY_API_KEY=${TABBY_API_KEY}     # internal key TabbyAPI requires; never exposed
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all           # or device_ids: ['GPU-<uuid>'] to pin one card
+              capabilities: [gpu]
+
+  # ── API gateway: per-user keys, budgets, dialect translation ────────────────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: litellm
+    restart: unless-stopped
+    depends_on: [inference]
+    networks: [llmnet]
+    expose:
+      - "4000"
+    volumes:
+      - ./assets/litellm-config.yaml:/app/config.yaml:ro
+      - litellm-db:/app/db
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}   # admin key for /key/generate
+      - LITELLM_SALT_KEY=${LITELLM_SALT_KEY}
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+
+  # ── Web UI for non-technical friends (auth boundary) ────────────────────────
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    depends_on: [litellm]
+    networks: [llmnet]
+    ports:
+      - "127.0.0.1:3000:8080"      # local admin/debug only; NOT on the LAN
+    volumes:
+      - openwebui-data:/app/backend/data   # accounts, keys, chats — BACK THIS UP (step 14)
+    environment:
+      - OPENAI_API_BASE_URL=http://litellm:4000/v1
+      - OPENAI_API_KEY=${OPENWEBUI_LITELLM_KEY}    # a LiteLLM virtual key for the UI
+      - WEBUI_AUTH=true
+      - ENABLE_SIGNUP=false        # you create accounts manually (step 07)
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - WEBUI_NAME=Home LLM
+
+  # ── Public ingress (outbound tunnel; no router ports) ───────────────────────
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    depends_on: [open-webui, litellm]
+    networks: [llmnet]
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}    # from Cloudflare Zero Trust (step 08)
+
+  # ── OPTIONAL (step 11): Stable Diffusion. Uncomment to enable. ──────────────
+  # comfyui:
+  #   image: yanwk/comfyui-boot:cu124
+  #   container_name: comfyui
+  #   restart: unless-stopped
+  #   networks: [llmnet]
+  #   expose: ["8188"]
+  #   volumes:
+  #     - comfyui-data:/root
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+
+  # ── OPTIONAL (step 11): Tabby self-hosted autocomplete. Uncomment to enable. ─
+  # tabby:
+  #   image: tabbyml/tabby:latest
+  #   container_name: tabby
+  #   restart: unless-stopped
+  #   networks: [llmnet]
+  #   expose: ["8080"]
+  #   command: serve --device cuda
+  #   volumes:
+  #     - tabby-data:/data
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+
+networks:
+  llmnet:
+    driver: bridge
+
+volumes:
+  models:
+  litellm-db:
+  openwebui-data:
+  # comfyui-data:
+  # tabby-data:

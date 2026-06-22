@@ -1,0 +1,28 @@
+// Tailscale ACL for the admin plane (step 09). Paste into the Tailscale admin
+// console > Access Controls. Friends are NEVER added to the tailnet — they use
+// Cloudflare. This ACL ensures only YOU can reach the server over Tailscale.
+{
+  "tagOwners": {
+    "tag:llm": ["autogroup:admin"]
+  },
+
+  "acls": [
+    // Admin (you) can reach everything on the tagged server.
+    {
+      "action": "accept",
+      "src":    ["autogroup:admin"],
+      "dst":    ["tag:llm:*"]
+    }
+    // No other rules: any device not matched is denied by default.
+  ],
+
+  "ssh": [
+    // Optional: Tailscale SSH to the server, admin only.
+    {
+      "action": "accept",
+      "src":    ["autogroup:admin"],
+      "dst":    ["tag:llm"],
+      "users":  ["root", "autogroup:nonroot"]
+    }
+  ]
+}

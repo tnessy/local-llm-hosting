@@ -1,0 +1,36 @@
+# LiteLLM gateway config. LiteLLM is the single API front door:
+#   - issues per-friend virtual keys with budgets / rate limits (step 06)
+#   - translates dialects so Codex (Responses) and Claude Code (Anthropic) work
+#   - routes every model to the llama-swap endpoint (service "inference")
+#
+# Clients call LiteLLM; LiteLLM calls http://inference:8080/v1 (llama-swap),
+# which loads the right EXL2 model on the GPU on demand.
+
+model_list:
+  - model_name: coder              # what clients request
+    litellm_params:
+      model: openai/coder          # "openai/<name>" => OpenAI-compatible upstream
+      api_base: http://inference:8080/v1
+      api_key: os.environ/TABBY_API_KEY
+  - model_name: chat
+    litellm_params:
+      model: openai/chat
+      api_base: http://inference:8080/v1
+      api_key: os.environ/TABBY_API_KEY
+
+litellm_settings:
+  drop_params: true                # tolerate client params the backend ignores
+  # set_verbose: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY   # admin key for /key/generate (step 06)
+  database_url: "sqlite:////app/db/litellm.db"  # stores virtual keys + spend
+
+# Dialect endpoints exposed by LiteLLM (used in step 12):
+#   OpenAI Chat Completions : POST {api.domain.com}/v1/chat/completions
+#   OpenAI Responses (Codex): POST {api.domain.com}/v1/responses
+#   Anthropic (Claude Code) : POST {api.domain.com}/v1/messages
+#
+# Per-friend keys are created at runtime, not here (step 06), e.g.:
+#   curl -s api.domain.com/key/generate -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+#     -d '{"models":["coder","chat"],"max_budget":20,"rpm_limit":60,"key_alias":"alice"}'
