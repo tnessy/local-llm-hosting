@@ -17,6 +17,34 @@ Confirm exact current picks against a live leaderboard (e.g. Aider's) before
 downloading — the field moves fast. Prefer a higher EXL2 bit-rate (≈5–6 bpw) for
 coding if VRAM allows; code is more quant-sensitive than chat.
 
+### Current models — what fits this stack (June 2026)
+
+This stack is **EXL2 / ExLlamaV2, GPU-resident** (no meaningful CPU offload). That
+splits the current field cleanly into "runs locally here" vs "cloud-route it." The
+frontier MoE models people search for (GLM-5.1, DeepSeek-V4, Kimi, MiniMax-M3,
+MiMo, Qwen3.5-flagship) are **230 B–1.6 T parameters** — they don't fit any
+consumer GPU at a usable quant, and most ship **GGUF (llama.cpp)**, not EXL2.
+
+| Model | Params (total/active) | Fits? | Min build | Notes |
+|---|---|---|---|---|
+| **Qwen3.5-27B** | 27 B dense | ✅ | 1× 4090 (24 GB) | ~16–20 GB @ 4–5 bpw; strong coder |
+| **Qwen3.5-35B** | 35 B / 3 B (MoE) | ✅ | 1× 4090 (24 GB) | ~20–22 GB; 3 B active = fast decode |
+| **Gemma 4 31B** | 31 B dense | ✅ | 1× 4090 (24 GB) | LiveCodeBench v6 ~80%; best local coder here |
+| **GLM-5.1** | 754 B / 40 B (MoE) | ❌ | — | GGUF-only; see "frontier" below |
+| **DeepSeek-V4** | Flash 284 B / Pro 1.6 T | ❌ | — | Even Flash busts 48 GB |
+
+**Local picks (this stack):** Gemma 4 31B or Qwen3.5-27B on a single 24 GB card is
+the sweet spot — none of the fitting models need more than a 4090. A 5090 (32 GB)
+buys higher bit-rate + a 2nd model resident, not a bigger model tier.
+
+**Frontier MoE (GLM-5.1 / DeepSeek-V4 / Kimi / MiniMax / MiMo):** not reachable on
+this stack. Running one locally means **switching to llama.cpp/GGUF with
+MoE CPU-offload** (1× 24 GB GPU **+ 256 GB system RAM**, single-digit tok/s), a
+**256–512 GB Mac Ultra**, or a **multi-H200 cluster** — none interactive-grade for
+the money. Instead, **route them through LiteLLM to a hosted API**
+([step 06](06-gateway-litellm.md)) — clients don't change. Use local for the
+fast/private 24 GB-tier coder, cloud for the frontier giants.
+
 ## 2. Download EXL2 weights to the model store
 
 EXL2 models live as folders. Put them under the NVMe model dir from step 03
