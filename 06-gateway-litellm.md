@@ -12,16 +12,18 @@ LiteLLM (decision **D5**) is the single API front door. It:
 
 Config: [`assets/litellm-config.yaml`](assets/litellm-config.yaml).
 
+> **Security:** All admin operations (`/key/*`, `/user/*`, `/model/info`,
+> `/health`) must be performed **via Tailscale only** (direct to
+> `http://<server>:4000` on the tailnet). These paths are blocked at the
+> Cloudflare WAF on `api.domain.com` — see [step 08](08-connectivity-cloudflare.md).
+> Never run admin calls against the public hostname.
+
 ## 1. Confirm it's running
 
 ```bash
-docker logs litellm --tail 50         # should show it loaded the config + models
-curl -s http://localhost:4000/health  # (run inside the box / via Tailscale)
+# Run from your Tailscale-connected machine or directly on the server
+curl -s http://<server>:4000/health
 ```
-
-> LiteLLM is **not** published to the LAN; reach it through the container, the
-> Tailscale admin plane, or—once [step 08](08-connectivity-cloudflare.md) is
-> done—`https://api.domain.com`.
 
 ## 2. Mint the Open WebUI key
 

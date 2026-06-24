@@ -2,38 +2,40 @@
 
 **98 findings** — Critical: 5  High: 29  Medium: 45  Low: 16  Info: 3
 
+Critical items C-1 through C-5 addressed in commit after this review.
+
 ---
 ## CRITICAL
 
-### C-1 — Calico CNI Not Pre-Validated — All NetworkPolicies Silently Unenforced if Missing
+### ~~C-1~~ — ✅ FIXED — Calico CNI Not Pre-Validated — All NetworkPolicies Silently Unenforced if Missing
 **Location:** 16-workspaces.md §1 — MicroK8s add-ons required  
 **Flagged by:** NET-2  
 **Issue:** The entire network isolation model depends on Calico being the active CNI, but there is no enforcement gate — Kubernetes accepts NetworkPolicy resources regardless of whether any CNI enforces them, so a missing or crash-looping Calico results in all policies becoming no-ops with no visible error.  
 **Impact:** If Calico is not correctly active, workspace pods have unrestricted access to the inference engine, LAN hosts, the management plane, and each other — a complete, silent network isolation failure.  
 **Fix:** Add an automated pre-flight check in the orchestrator that confirms Calico DaemonSet pods are all Running/Ready before allowing any workspace creation, and document that Calico must be enabled and verified before any namespace is created.
 
-### C-2 — LiteLLM Master Key and Admin Endpoints Exposed on Public api.domain.com
+### ~~C-2~~ — ✅ FIXED — LiteLLM Master Key and Admin Endpoints Exposed on Public api.domain.com
 **Location:** 06-gateway-litellm.md §2–3; assets/litellm-config.yaml; 08-connectivity-cloudflare.md §4  
 **Flagged by:** AUTH-3, INGRESS-3  
 **Issue:** The Cloudflare tunnel routes api.domain.com directly to litellm:4000 with no path filtering, making /key/generate, /key/delete, /key/info, and /health reachable from the public internet protected only by LITELLM_MASTER_KEY.  
 **Impact:** Any actor who obtains or brute-forces the master key gains full LiteLLM admin access from the internet: minting unlimited keys, revoking all friend keys, and reading all spend data.  
 **Fix:** Block /key/*, /model/info, and /health at the Cloudflare WAF for api.domain.com, and restrict master-key operations to the Tailscale interface (localhost:4000) only; update step 06 instructions accordingly.
 
-### C-3 — Orchestrator ClusterRole Is Effectively Cluster-Admin via Cluster-Wide Secrets CRUD
+### ~~C-3~~ — ✅ FIXED — Orchestrator ClusterRole Is Effectively Cluster-Admin via Cluster-Wide Secrets CRUD
 **Location:** 16-workspaces.md §5 RBAC — assets/k8s/llm-platform/orchestrator-rbac.yaml  
 **Flagged by:** AUTH-5, SECRETS-12, ORCHESTRATOR-1, HOST-10  
 **Issue:** The orchestrator's ClusterRole grants create/get/list/watch/patch/delete on secrets with no namespace restriction, meaning the orchestrator service account can read and modify secrets in every namespace including llm-core (LiteLLM master key, TabbyAPI key) and llm-platform (Cloudflare tunnel token, Authentik credentials).  
 **Impact:** A compromised orchestrator process immediately yields every credential in the cluster, enabling full privilege escalation to all services including the inference GPU.  
 **Fix:** Remove secrets (and all other namespace-scoped resources) from the ClusterRole; instead create a Role + RoleBinding in each ws-<username> namespace at provisioning time, limiting the orchestrator's secret access to workspace namespaces it created.
 
-### C-4 — Orchestrator ClusterRole Has Cluster-Wide NetworkPolicy Write — Can Erase All Isolation
+### ~~C-4~~ — ✅ FIXED — Orchestrator ClusterRole Has Cluster-Wide NetworkPolicy Write — Can Erase All Isolation
 **Location:** 16-workspaces.md §5 RBAC — assets/k8s/llm-platform/orchestrator-rbac.yaml  
 **Flagged by:** NET-12, AUTH-6, ORCHESTRATOR-2  
 **Issue:** The orchestrator ClusterRole grants create/patch/delete on networkpolicies cluster-wide, allowing a compromised orchestrator to delete the inference-ingress policy in llm-core and the workspace-isolation policies in all ws-* namespaces.  
 **Impact:** A single compromised orchestrator process can erase every network boundary in the architecture in one kubectl call, enabling workspace pods to reach the inference engine directly and allowing unrestricted lateral movement.  
 **Fix:** Restrict NetworkPolicy write permission to ws-* namespaces via per-namespace RoleBindings; manage the inference-ingress policy in llm-core through a separate bootstrap process the orchestrator cannot touch.
 
-### C-5 — Cloudflare Tunnel Token Stored in Plaintext — Compromise Grants Full Ingress Hijack
+### ~~C-5~~ — ✅ FIXED — Cloudflare Tunnel Token Stored in Plaintext — Compromise Grants Full Ingress Hijack
 **Location:** 04-deploy-stack-ubuntu.md §2; assets/docker-compose.yml (cloudflared service); 08-connectivity-cloudflare.md §1  
 **Flagged by:** INGRESS-1  
 **Issue:** CF_TUNNEL_TOKEN is stored in a plaintext .env file; a leaked token lets an attacker register an additional cloudflared connector on the same tunnel and intercept or MITM all traffic across llm.domain.com, api.domain.com, and *.ws.domain.com.  

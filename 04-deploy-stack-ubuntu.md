@@ -28,15 +28,23 @@ The directory should contain:
 ```bash
 cd /opt/home-llm
 cp .env.example .env
+chmod 600 .env          # restrict to owner only — file contains all service credentials
+chmod 750 /opt/home-llm # prevent other local users from listing the directory
 
-# Generate secrets (run once each; use distinct values)
+# Prevent accidental git commits of secrets
+echo ".env" >> /opt/home-llm/.gitignore
+
+# Generate secrets — use a text editor to fill the file, not echo/shell substitution
+# (shell substitution persists secret values in history files)
 openssl rand -hex 32   # TABBY_API_KEY
 openssl rand -hex 32   # LITELLM_SALT_KEY
 openssl rand -hex 32   # WEBUI_SECRET_KEY
+nano .env
 ```
 
 Fill `.env`:
-- `CF_TUNNEL_TOKEN` — from [step 01](01-prerequisites.md).
+- `CF_TUNNEL_TOKEN` — from [step 01](01-prerequisites.md). In the MicroK8s
+  deployment this moves to a k8s Secret (see [step 08](08-connectivity-cloudflare.md) §5); keep it here only for the Docker Compose bootstrap phase.
 - `LITELLM_MASTER_KEY` — set to `sk-` + a random hex.
 - `OPENWEBUI_LITELLM_KEY` — leave blank for now; mint it in
   [step 06](06-gateway-litellm.md), then add it and restart `open-webui`.

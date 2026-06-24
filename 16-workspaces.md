@@ -91,11 +91,21 @@ microk8s enable hostpath-storage  # PVC provisioner for home volumes + service d
 microk8s enable helm3           # for Authentik (step 15)
 ```
 
-Verify Calico is ready before applying any NetworkPolicy:
+**Wait for Calico to be fully ready before proceeding.** Kubernetes silently
+accepts NetworkPolicy resources regardless of whether a CNI is enforcing them —
+a crash-looping or absent Calico means every policy is a no-op with no error.
 
 ```bash
-microk8s kubectl get pods -n kube-system | grep calico
+# Wait until ALL calico-node pods are Running and Ready (one per node)
+microk8s kubectl rollout status daemonset/calico-node -n kube-system
+
+# Confirm desired == ready (the number in parentheses must match)
+microk8s kubectl get daemonset calico-node -n kube-system
+# Expected: DESIRED=1  CURRENT=1  READY=1  (on a single-node cluster)
 ```
+
+Do not create namespaces or workspaces until this check passes. The orchestrator
+enforces this programmatically at runtime — see §5.
 
 ---
 
@@ -249,18 +259,25 @@ spec:
 
 ### RBAC
 
-The orchestrator runs as `orchestrator-sa` in `llm-platform`. It needs a
-ClusterRole because namespace creation, node visibility, and ResourceQuota
-management are cluster-scoped:
+The orchestrator uses a **two-tier** permission model. A ClusterRole covers
+only the resources that are genuinely cluster-scoped (namespaces, nodes,
+PersistentVolumes). All namespace-scoped operations — including secrets and
+NetworkPolicies — are granted exclusively inside each `ws-*` namespace via a
+per-namespace Role that the orchestrator bootstraps at first login.
+
+This prevents a compromised orchestrator from reading credentials in
+`llm-core` or `llm-platform`, and from erasing NetworkPolicies outside the
+workspaces it manages (C-3, C-4).
 
 ```yaml
 # assets/k8s/llm-platform/orchestrator-rbac.yaml
+
+# Tier 1: ClusterRole — cluster-scoped resources only
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: orchestrator
+  name: orchestrator-cluster
 rules:
-# Cluster-scoped
 - apiGroups: [""]
   resources: ["namespaces"]
   verbs: ["create", "get", "list", "watch", "patch", "delete"]
@@ -268,14 +285,40 @@ rules:
   resources: ["nodes"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
-  resources: ["resourcequotas", "limitranges"]
-  verbs: ["create", "get", "list", "watch", "patch", "delete"]
-- apiGroups: [""]
   resources: ["persistentvolumes"]
   verbs: ["get", "list", "watch"]
-# Namespace-scoped (workspace lifecycle, applied across ws-* namespaces)
+# Read-only cluster-wide for the consumption/availability dashboard
 - apiGroups: [""]
-  resources: ["pods", "services", "persistentvolumeclaims", "configmaps", "secrets"]
+  resources: ["resourcequotas", "pods"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: orchestrator-cluster
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: orchestrator-cluster
+subjects:
+- kind: ServiceAccount
+  name: orchestrator-sa
+  namespace: llm-platform
+```
+
+```yaml
+# Tier 2: Role template — applied by the orchestrator to each ws-<username>
+# namespace it creates. Never applied to llm-core or llm-platform.
+# assets/k8s/llm-platform/orchestrator-ws-role-template.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: orchestrator-ws
+  namespace: ws-<username>   # set per namespace at provisioning time
+rules:
+- apiGroups: [""]
+  resources: ["resourcequotas", "limitranges", "services",
+              "persistentvolumeclaims", "configmaps", "secrets", "pods"]
   verbs: ["create", "get", "list", "watch", "patch", "delete"]
 - apiGroups: ["apps"]
   resources: ["deployments", "replicasets"]
@@ -288,27 +331,47 @@ rules:
   verbs: ["create", "get", "list", "watch", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
-  name: orchestrator
+  name: orchestrator-ws
+  namespace: ws-<username>
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: orchestrator
+  kind: Role
+  name: orchestrator-ws
 subjects:
 - kind: ServiceAccount
   name: orchestrator-sa
   namespace: llm-platform
 ```
 
+> **Bootstrap note:** The `inference-ingress` NetworkPolicy in `llm-core`
+> (§4b) is applied once during cluster bootstrap — before the orchestrator
+> is deployed — and is not in any namespace the orchestrator can write to.
+> This ensures a compromised orchestrator cannot erase the inference
+> isolation boundary.
+
 The orchestrator never gets `pods/exec` or `pods/portforward` — no path from
 the admin plane into a workspace container.
 
 ### What the orchestrator does at workspace launch
 
-1. **First login for a user:** create `ws-<username>` namespace, apply
-   `workspace-isolation` NetworkPolicy and `workspace-quota` ResourceQuota.
+0. **Pre-flight (every launch):** verify the Calico DaemonSet is healthy
+   before proceeding. If the check fails, reject the launch with a clear
+   error — do not allow workspace creation while isolation may be unenforced.
+   ```python
+   ds = k8s.apps_v1.read_namespaced_daemon_set("calico-node", "kube-system")
+   assert ds.status.number_ready == ds.status.desired_number_scheduled, \
+       "Calico not fully ready — workspace creation blocked"
+   ```
+1. **First login for a user:** create `ws-<username>` namespace, apply the
+   `workspace-isolation` NetworkPolicy **before** creating any Deployment,
+   apply `workspace-quota` ResourceQuota, and create the `orchestrator-ws`
+   Role + RoleBinding for this namespace.
 2. **Each workspace launch:**
+   - Verify `workspace-isolation` NetworkPolicy is present and spec matches
+     the expected template; abort if missing or mismatched (race-condition
+     guard — policy must exist before any pod can start).
    - Mint a scoped LiteLLM key (`/key/generate` with `max_budget`, `rpm_limit`,
      model allowlist — [step 06](06-gateway-litellm.md)).
    - Store the key in a `Secret` in `ws-<username>`.
