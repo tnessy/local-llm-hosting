@@ -48,11 +48,11 @@ fast/private 24 GB-tier coder, cloud for the frontier giants.
 ## 2. Download EXL2 weights to the model store
 
 EXL2 models live as folders. Put them under the NVMe model dir from step 03
-(`/mnt/nvme/models`). With huggingface CLI on the host (or inside the container):
+(`/srv/models`). With huggingface CLI on the host (or inside the container):
 
 ```bash
 huggingface-cli download <org>/<model-exl2> \
-  --local-dir /mnt/nvme/models/<Qwen3-Coder-30B-exl2>
+  --local-dir /srv/models/<Qwen3-Coder-30B-exl2>
 ```
 
 The folder name is what you reference as `--model-name`.

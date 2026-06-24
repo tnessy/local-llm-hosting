@@ -24,49 +24,53 @@ budgets, and dialect translation).
 ## Architecture (end-to-end)
 
 ```
- CLIENTS                       CONNECTIVITY                 SERVER (single GPU box)
- ───────────────────────────   ─────────────────────────   ──────────────────────────────────
+ CLIENTS                       CONNECTIVITY                 SERVER (single GPU box / MicroK8s)
+ ───────────────────────────   ─────────────────────────   ──────────────────────────────────────
 
  UI friend (browser) ────────► llm.domain.com
-                                └ CF Access (Google/OTP) ──► Open WebUI ─┐
-                                                                         │
- Coder friend                                                            ▼
-   Continue (IDE)                                              LiteLLM (per-user keys,
-   Aider (CLI/TUI)    ────────► api.domain.com                 budgets, dialects)
-   opencode/Codex/                └ CF Access BYPASS + WAF ──►        │
-   Claude Code                      (virtual-key auth)                ▼
-                                                            llama-swap (on-demand
-                                                            model swap on ONE GPU)
-                                                                       │
-                                                                       ▼
-                                                       TabbyAPI + ExLlamaV2 (EXL2 quants)
-                                                                       │
+                                └ CF Access (Google/OTP) ──► Open WebUI        [ns: llm-core]
+                                                                    │
+ Coder friend                                                       ▼
+   Continue (IDE)                                         LiteLLM (per-user keys,
+   Aider (CLI/TUI)    ────────► api.domain.com             budgets, dialects)   [ns: llm-core]
+   opencode/Codex/                └ CF Access BYPASS + WAF ──►     │
+   Claude Code                      (virtual-key auth)             ▼
+                                                         llama-swap + TabbyAPI + ExLlamaV2
+                                                         (one GPU, on-demand model swap)
+                                                                              [ns: llm-core]
  Workspace user (browser) ──► ws-<id>.ws.domain.com
-                                └ CF Access (OIDC→Authentik) ──► Traefik ──► hardened
-                                                                             code-server container
-                                                                  (scoped LiteLLM key; isolated
-                                                                   ws-net; no GPU; egress-locked)
-                              Orchestrator (custom UI) manages launch/stop/TTL via Docker socket
+                                └ CF Access (OIDC→Authentik) ──► Traefik (Gateway API)
+                                                                  [ns: llm-platform]  │
+                                                                                       ▼
+                                                                            code-server pod
+                                                                            [ns: ws-<user>]
+                                                                                 │
+                                    ╔════════════════════════════════════════════╝
+                                    ║  in-cluster, no public internet hop
+                                    ▼  virtual-key auth + budgets enforced
+                                  LiteLLM [ns: llm-core]
 
- You (admin) ───────────────► Tailscale (private) ──► host UI/SSH      └─ optional:
-                               never public                              ComfyUI (SD), Tabby (FIM)
+                              Orchestrator (k8s API) manages launch/stop/TTL [ns: llm-platform]
+
+ You (admin) ───────────────► Tailscale (private) ──► SSH           └─ optional:
+                               never public                           ComfyUI (SD), Tabby (FIM)
 
  Identity: Authentik (OIDC) ◄── Cloudflare Access federates ──► governs all client types
+                                                                              [ns: llm-platform]
 ```
 
-Internal service/port map (Docker network `llmnet`, nothing but the tunnel and
-Tailscale leave the box):
+Internal service map (MicroK8s, nothing but the tunnel and Tailscale leave the box):
 
-| Service | Internal address | Published? | Reached by |
+| Service | Namespace | In-cluster address | Reached by |
 |---|---|---|---|
-| `inference` (llama-swap + TabbyAPI) | `http://inference:8080/v1` | no | LiteLLM, Open WebUI |
-| `litellm` | `http://litellm:4000` | no | cloudflared (`api.`) |
-| `open-webui` | `http://open-webui:8080` | `127.0.0.1:3000` (local admin only) | cloudflared (`llm.`) |
-| `cloudflared` | — | no (outbound tunnel) | Cloudflare edge |
-| `authentik` (IdP) | `http://authentik:9000` | no (admin via Tailscale) | CF Access, orchestrator |
-| `traefik` (workspace router) | `http://traefik:80` | no | cloudflared (`*.ws.`) |
-| `orchestrator` (custom) | admin-only | no (Tailscale + `grp-admin`) | holds Docker socket |
-| workspace `ws-<id>` | on isolated `ws-net` | no | Traefik only |
+| `inference` (llama-swap + TabbyAPI) | `llm-core` | `http://inference.llm-core:8080/v1` | LiteLLM only (NetworkPolicy) |
+| `litellm` | `llm-core` | `http://litellm.llm-core:4000` | cloudflared (`api.`), Open WebUI, workspace pods |
+| `open-webui` | `llm-core` | `http://open-webui.llm-core:8080` | cloudflared (`llm.`) |
+| `cloudflared` | `llm-platform` | — (outbound tunnel) | Cloudflare edge |
+| `authentik` (IdP) | `llm-platform` | `http://authentik.llm-platform:9000` | CF Access, orchestrator |
+| `traefik` (Gateway API) | `llm-platform` | `http://traefik.llm-platform:80` | cloudflared (all hostnames) |
+| `orchestrator` | `llm-platform` | admin-only | Tailscale + `grp-admin`; uses k8s API |
+| workspace `ws-<id>` | `ws-<username>` | in-namespace ClusterIP | Traefik only (NetworkPolicy) |
 
 ---
 
@@ -84,11 +88,11 @@ it's implemented, so changing a decision = editing that step.
 | D5 | API gateway | **LiteLLM** | Per-user keys/budgets + OpenAI/Responses/Anthropic dialect translation. | [06](06-gateway-litellm.md) |
 | D6 | Web UI | **Open WebUI** | General-chat-first + RBAC auth boundary. Alt: AnythingLLM (RAG-first — rejected for this use). | [07](07-webui-open-webui.md) |
 | D7 | Coding clients | **Continue (IDE) + Aider (CLI)** | Model-agnostic, forgiving of local models. Any OAI/Anthropic tool also works. | [12](12-clients.md) |
-| D8 | Host OS | **Unraid OR HexOS/TrueNAS** | Trialing both → a/b instructions throughout. | [02a](02a-host-os-unraid.md)/[02b](02b-host-os-hexos-truenas.md) |
+| D8 | Host OS | **Ubuntu Server 24.04 LTS** | Plain Linux — no NAS overhead; best NVIDIA/CUDA driver support; Docker first-class. Alt: Debian (slightly more manual NVIDIA setup), Arch (rolling — too risky for 24/7). | [02](02-host-os-ubuntu.md) |
 | D9 | Model format/picks | **EXL2 quants, deferred** | Finalize at GPU purchase; sizing table in step 10. | [10](10-models.md) |
 | D10 | Optional services | **ComfyUI (SD), Tabby (FIM)** | Add later; mind VRAM contention. | [11](11-optional-comfyui-tabby.md) |
 | D11 | Identity / SSO | **Authentik (OIDC IdP)** | One user/group source for all client types; CF Access federates to it. Alt: Keycloak/Zitadel. | [15](15-identity-sso.md) |
-| D12 | Workspaces (3rd client) | **Custom orchestrator + hardened containers, browser IDE** | On-demand dev envs for trusted friends; GPU-free, egress-locked. Alt (reference): Coder, Kasm. | [16](16-workspaces.md) |
+| D12 | Workspaces (3rd client) | **MicroK8s + custom orchestrator + hardened pods, browser IDE** | On-demand dev envs; GPU-free; workspace pods reach LiteLLM in-cluster (no public hop); NetworkPolicy enforces isolation. Ingress via Traefik + Gateway API (ingress-nginx EOL March 2026). Alt (reference): Coder, Kasm. | [16](16-workspaces.md) |
 
 ### How to change a decision later
 
@@ -106,9 +110,9 @@ Follow in order. For steps with **a/b**, pick the file matching your OS (D8).
 | Step | Document | What it does |
 |---|---|---|
 | 01 | [Prerequisites](01-prerequisites.md) | Domain on Cloudflare, accounts, hardware checklist |
-| 02 | [Host OS + GPU — **a) Unraid**](02a-host-os-unraid.md) · [**b) HexOS/TrueNAS**](02b-host-os-hexos-truenas.md) | Install OS, enable NVIDIA driver, verify `nvidia-smi` |
-| 03 | [Storage — **a) Unraid**](03a-storage-unraid.md) · [**b) TrueNAS**](03b-storage-truenas.md) | Fast NVMe model store |
-| 04 | [Deploy stack — **a) Unraid**](04a-deploy-stack-unraid.md) · [**b) TrueNAS**](04b-deploy-stack-truenas.md) | Bring up the containers |
+| 02 | [Host OS + GPU (Ubuntu)](02-host-os-ubuntu.md) | Install Ubuntu Server, NVIDIA driver, Docker + container toolkit |
+| 03 | [Storage (Ubuntu)](03-storage-ubuntu.md) | Format NVMe, mount at `/srv/models` |
+| 04 | [Deploy stack (Ubuntu)](04-deploy-stack-ubuntu.md) | Bring up the containers, enable auto-start |
 | 05 | [Inference: TabbyAPI + llama-swap](05-inference-tabbyapi-llamaswap.md) | Model-swap engine config |
 | 06 | [Gateway: LiteLLM](06-gateway-litellm.md) | Virtual keys, budgets, dialect routes |
 | 07 | [Web UI: Open WebUI](07-webui-open-webui.md) | Accounts, signup off, model wiring |

@@ -1,6 +1,6 @@
 # 01 — Prerequisites
 
-← [Back to README](README.md) · Next: [02a Unraid](02a-host-os-unraid.md) / [02b HexOS-TrueNAS](02b-host-os-hexos-truenas.md)
+← [Back to README](README.md) · Next: [02 Host OS (Ubuntu)](02-host-os-ubuntu.md)
 
 Do these before touching the server.
 
@@ -74,12 +74,7 @@ known provenance. They move weekly; re-check before buying.
 > GPU not bought yet? Continue with OS/storage/stack setup; you'll pull models
 > and finalize tuning in [step 10](10-models.md) once the card is in.
 
-## Decide your OS path (D8)
+## OS path (D8)
 
-You're trialing both. Pick which to set up first and follow the matching **a**
-or **b** files in steps 02–04:
-
-- **a) Unraid** — mature Nvidia-driver plugin + Compose workflow.
-- **b) HexOS / TrueNAS SCALE** — same stack via docker-compose / custom app.
-
-The stack (steps 05+) is identical afterward.
+This guide uses **Ubuntu Server 24.04 LTS** — plain Linux with first-class NVIDIA
+driver support and no NAS overhead. Continue to [step 02](02-host-os-ubuntu.md).

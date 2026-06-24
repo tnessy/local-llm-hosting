@@ -1,6 +1,6 @@
 # 05 — Inference: TabbyAPI + ExLlamaV2 + llama-swap
 
-← [04a Unraid](04a-deploy-stack-unraid.md) / [04b TrueNAS](04b-deploy-stack-truenas.md) · Next: [06 LiteLLM](06-gateway-litellm.md)
+← [04 Deploy stack](04-deploy-stack-ubuntu.md) · Next: [06 LiteLLM](06-gateway-litellm.md)
 
 This is the engine layer (decisions **D3/D4**). **llama-swap** is the front door
 on `:8080`; it launches a **TabbyAPI/ExLlamaV2** process for whichever model a

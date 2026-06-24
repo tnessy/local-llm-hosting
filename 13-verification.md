@@ -20,7 +20,7 @@ plus the negative tests that prove the restrictions hold.
 - [ ] **Claude Code** (Anthropic via LiteLLM) returns output.
 
 ### Admin
-- [ ] Host UI (Unraid/TrueNAS) + SSH reachable over **Tailscale**.
+- [ ] SSH reachable over **Tailscale**.
 - [ ] `docker exec -it inference nvidia-smi` sees the GPU.
 
 ## Negative tests (the important ones)

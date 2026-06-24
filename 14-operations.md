@@ -11,13 +11,12 @@ Two stateful volumes hold the crown jewels:
 - **`openwebui-data`** — user accounts, per-user keys, chat history.
 - **`litellm-db`** — virtual keys, budgets, spend.
 
-Back them up on a schedule (Unraid: appdata backup plugin / TrueNAS: replication
-or a cron `tar`):
+Back them up on a schedule (cron + `tar`, or `restic` for incremental):
 
 ```bash
-docker run --rm -v home-llm_openwebui-data:/d -v /mnt/nvme/backups:/b \
+docker run --rm -v home-llm_openwebui-data:/d -v /srv/backups:/b \
   alpine tar czf /b/openwebui-$(date +%F).tgz -C /d .
-docker run --rm -v home-llm_litellm-db:/d -v /mnt/nvme/backups:/b \
+docker run --rm -v home-llm_litellm-db:/d -v /srv/backups:/b \
   alpine tar czf /b/litellm-$(date +%F).tgz -C /d .
 ```
 
@@ -33,8 +32,9 @@ EXL2 folders you used.
   ```
   Pin to known-good tags if a release breaks dialect translation; test Aider +
   Codex + Claude Code after engine/LiteLLM updates.
-- **Host OS / NVIDIA driver:** keep Unraid/TrueNAS and the driver current; after
-  a driver update re-run `docker exec -it inference nvidia-smi`.
+- **Host OS / NVIDIA driver:** `sudo apt upgrade` keeps both current. After a
+  driver update re-run `docker exec -it inference nvidia-smi` to confirm the
+  container still sees the GPU.
 
 ## Key & access hygiene
 
