@@ -2,6 +2,10 @@
 
 ← [10 Models](10-models.md) · Next: [12 Clients](12-clients.md)
 
+> **Overview:** Optionally add ComfyUI (Stable Diffusion) and/or Tabby ML (code autocomplete) as additional Docker Compose services that share the same GPU as the inference stack.
+>
+> **Why:** Both services reuse the existing Docker network and NVIDIA runtime with no firewall changes. The main constraint is VRAM contention — the LLM engine must be unloaded for either service to use the GPU simultaneously.
+
 Optional sibling services (decision **D10**). Both share the **one GPU** with the
 LLM engine — mind VRAM contention (see the caution at the end).
 

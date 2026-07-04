@@ -2,6 +2,17 @@
 
 ← [11 Optional services](11-optional-comfyui-tabby.md) · Next: [13 Verification](13-verification.md)
 
+> **Overview:** Connection reference for every client type — browser UI friends, direct API users, and AI coding tools (Aider, Codex, Claude Code). Covers the endpoint, key format, and tool-specific configuration for each persona.
+>
+> **Why:** Each client uses a different endpoint and auth mechanism. Handing out the wrong endpoint or key format is a common setup mistake; this step captures the exact connection details per persona before anyone is onboarded.
+>
+> **Placeholders to gather before starting:**
+>
+> | Placeholder | What it is | Where to find it |
+> |---|---|---|
+> | `<api.domain.com>` | Public API hostname | Configured in step 08 |
+> | `<their-virtual-key>` | Per-friend LiteLLM `sk-...` key | Minted in step 06 for each friend |
+
 How each persona connects. Two endpoints:
 
 - **UI friends:** `https://llm.domain.com` (browser).

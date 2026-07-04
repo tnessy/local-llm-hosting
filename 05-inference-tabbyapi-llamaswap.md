@@ -2,6 +2,10 @@
 
 ← [04 Deploy stack](04-deploy-stack-ubuntu.md) · Next: [06 LiteLLM](06-gateway-litellm.md)
 
+> **Overview:** Configure the inference engine layer — llama-swap acts as the request router, launching a per-model TabbyAPI/ExLlamaV2 process on demand and unloading it when another model is requested.
+>
+> **Why:** A single GPU is time-shared across models via llama-swap rather than contended. Correct configuration here determines which models are available, how much VRAM each uses, and whether tool-calling functions correctly. Model file paths are filled in at step 10 once weights are downloaded.
+
 This is the engine layer (decisions **D3/D4**). **llama-swap** is the front door
 on `:8080`; it launches a **TabbyAPI/ExLlamaV2** process for whichever model a
 request names, and unloads it when another model is needed — so a single GPU is

@@ -2,7 +2,11 @@
 # preconfigured LLM clients pointing at LiteLLM. Build variants per stack
 # (ws-python, ws-node, ...). Launched by the orchestrator as a HARDENED,
 # NON-ROOT, GPU-FREE container on the isolated ws-net.
-
+#
+# Before building, pin this base image to a digest (same procedure as step 04 §4):
+#   docker pull codercom/code-server:latest
+#   docker inspect --format='{{index .RepoDigests 0}}' codercom/code-server:latest
+# Then replace :latest below with :latest@sha256:<digest>
 FROM codercom/code-server:latest
 
 USER root
@@ -14,7 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # --- LLM clients preinstalled ----------------------------------------------
 # Aider (CLI) + (optionally) the Continue CLI / extension can be added here.
-RUN pip3 install --no-cache-dir aider-chat
+# Pin to a specific version — check https://pypi.org/project/aider-chat/ for the latest stable.
+# After updating the version here, rebuild all workspace images deliberately (same cadence as
+# container updates in step 14).
+RUN pip3 install --no-cache-dir aider-chat==VERSION
 
 # --- Preconfigure clients to use LiteLLM ------------------------------------
 # OPENAI_API_BASE / OPENAI_API_KEY are injected at launch by the orchestrator

@@ -2,8 +2,16 @@
 
 ← [12 Clients](12-clients.md) · Next: [14 Operations](14-operations.md)
 
-Run these after the stack is up and models are loaded. Each persona's happy path
-plus the negative tests that prove the restrictions hold.
+> **Overview:** End-to-end smoke tests covering every persona's happy path (browser UI, API, AI coding tools) and the negative tests that confirm access controls actually hold.
+>
+> **Why:** A stack that appears healthy can silently fail to enforce authentication, leave raw ports reachable, or drop requests under load. Running both positive and negative tests before distributing credentials confirms the security posture is real, not assumed.
+>
+> **Placeholders to gather before starting:**
+>
+> | Placeholder | What it is | Where to find it |
+> |---|---|---|
+> | `<server-ip>` | Server's LAN IP | From step 02 (static DHCP reservation) |
+> | `<virtual-key>` | A test LiteLLM virtual key | Minted in step 06 |
 
 ## Happy paths
 

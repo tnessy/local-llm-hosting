@@ -17,12 +17,13 @@
   ],
 
   "ssh": [
-    // Optional: Tailscale SSH to the server, admin only.
+    // Tailscale SSH to the server, admin only. Root login is intentionally
+    // excluded — use sudo from your named account for privileged operations.
     {
       "action": "accept",
       "src":    ["autogroup:admin"],
       "dst":    ["tag:llm"],
-      "users":  ["root", "autogroup:nonroot"]
+      "users":  ["autogroup:nonroot"]
     }
   ]
 }

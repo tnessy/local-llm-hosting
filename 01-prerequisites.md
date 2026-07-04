@@ -2,7 +2,9 @@
 
 ← [Back to README](README.md) · Next: [02 Host OS (Ubuntu)](02-host-os-ubuntu.md)
 
-Do these before touching the server.
+> **Overview:** Procure and configure everything needed before the main setup begins — hardware, accounts, domain, and the Cloudflare tunnel credential.
+>
+> **Why:** Being blocked mid-setup by a missing tunnel token, wrong hardware, or no domain is far more disruptive than resolving prerequisites first. This step is the pre-flight checklist.
 
 ## Accounts & domain
 

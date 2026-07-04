@@ -2,7 +2,19 @@
 
 ← [01 Prerequisites](01-prerequisites.md) · Next: [03 Storage](03-storage-ubuntu.md)
 
-Goal: Ubuntu installed, NVIDIA driver active, GPU visible to Docker containers.
+> **Overview:** Install Ubuntu Server 24.04 LTS, establish the security baseline (timezone, automatic security patches, SSH hardening, UFW firewall, dedicated `llm-svc` service account), and install the NVIDIA driver and Container Toolkit so the GPU is visible to containers.
+>
+> **Why:** Every layer above — Docker, LiteLLM, Open WebUI, MicroK8s — runs on top of this OS configuration. Firewall rules, service account isolation, and automatic patching set here are significantly harder to retrofit once the stack is running.
+>
+> **Placeholders to gather before starting:**
+>
+> | Placeholder | What it is | Where to find it |
+> |---|---|---|
+> | `<your/timezone>` | IANA timezone string (e.g. `America/New_York`, `Europe/London`) | `timedatectl list-timezones` |
+> | `<your-user>` | Admin Linux username on the server | Chosen during Ubuntu install |
+> | `<server-lan-ip>` | Server's static LAN IPv4 address | Router DHCP reservation, or `ip addr` after first boot |
+> | `<LAN_CIDR>` | Local subnet in CIDR notation (e.g. `192.168.1.0/24`) | Router admin UI |
+> | `<GRAFANA_HOST_IP>` | LAN IP of the Grafana/Prometheus host (step 14 monitoring) | Fill in when step 14 monitoring is configured — leave the UFW rule commented out until then |
 
 ## 1. Install Ubuntu Server 24.04 LTS
 
@@ -17,12 +29,162 @@ Goal: Ubuntu installed, NVIDIA driver active, GPU visible to Docker containers.
 
 ## 2. Update the system
 
+**Set the system timezone first** — `unattended-upgrades` schedules automatic
+reboots using the system clock; set the correct timezone before configuring it.
+
+```bash
+# List available timezones: timedatectl list-timezones | grep <Region>
+sudo timedatectl set-timezone <your/timezone>   # e.g. America/New_York, Europe/London, UTC
+timedatectl   # verify
+```
+
+Apply all pending updates and reboot:
+
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo reboot
 ```
 
-## 3. Install the NVIDIA driver
+**Enable automatic security updates:**
+
+```bash
+sudo apt install -y unattended-upgrades
+
+sudo tee /etc/apt/apt.conf.d/50unattended-upgrades > /dev/null <<'EOF'
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+};
+
+// NVIDIA driver updates can break GPU container access — apply manually and verify.
+Unattended-Upgrade::Package-Blacklist {
+    "nvidia-*";
+    "libnvidia-*";
+};
+
+// Reboot time uses the system timezone set above. Adjust for your low-traffic window.
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+Unattended-Upgrade::Automatic-Reboot-Time "03:00";
+
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+EOF
+
+sudo tee /etc/apt/apt.conf.d/20auto-upgrades > /dev/null <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+
+# Verify the configuration and preview what would be updated
+sudo unattended-upgrades --dry-run --debug 2>&1 | grep -E "Packages|No packages|Considering"
+```
+
+> **Monitoring dependency:** Post-reboot health visibility depends on logs being
+> shipped to Loki before shutdown completes. When implementing step 14 (H-29),
+> configure the Promtail systemd unit with `TimeoutStopSec=30` so it flushes its
+> buffer before the reboot, and add a Grafana heartbeat alert that fires if the
+> LLM server stops sending logs for more than 5–10 minutes.
+
+## 3. Harden SSH
+
+Ubuntu enables OpenSSH with password authentication on by default. Lock it
+down before proceeding.
+
+**Phase approach — complete in order:**
+
+**Phase 1 — Confirm key-based login works** (before disabling password auth):
+
+```bash
+# On your admin machine: copy your public key to the server
+ssh-copy-id <your-user>@<server-lan-ip>
+
+# Then verify you can log in without a password prompt
+ssh <your-user>@<server-lan-ip>
+```
+
+**Phase 2 — Apply hardened settings:**
+
+```
+# /etc/ssh/sshd_config — add or override these lines
+PermitRootLogin no
+PasswordAuthentication no
+```
+
+```bash
+sudo sshd -t                  # validate config syntax
+sudo systemctl restart ssh
+
+# Verify: key login still works; password login is now rejected
+ssh <your-user>@<server-lan-ip>
+```
+
+> `PasswordAuthentication no` only controls SSH logins. `sudo` uses your
+> Linux account password and is completely unaffected.
+
+**Phase 3 — Onboarding a new SSH user (temporary per-user override):**
+
+When adding a new user who hasn't yet set up their key, add a temporary
+override so they can log in with a password and add their public key:
+
+```
+# /etc/ssh/sshd_config — add temporarily, remove once key is confirmed
+#
+# Match User <username>
+#     PasswordAuthentication yes
+```
+
+Once they've added their public key to `~/.ssh/authorized_keys`, remove
+the `Match` block and restart SSH — they're key-only from that point on.
+
+> Interface binding (restricting which IPs SSH listens on) is configured in
+> [step 09](09-connectivity-tailscale.md) once your Tailscale IP is known.
+
+## 4. Configure the host firewall (UFW)
+
+Ubuntu ships with UFW inactive. Enable it now — it blocks uninvited inbound
+connections from LAN devices and from any future public IPv6 address your ISP
+assigns (IPv6 bypasses NAT; without a host firewall the server would be directly
+internet-facing on IPv6).
+
+```bash
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+
+# SSH from your local network. sshd's ListenAddress (step 09 §4) also restricts
+# which interfaces sshd binds to; UFW is the independent network-layer backstop.
+# Replace <LAN_CIDR> with your subnet, e.g. 192.168.1.0/24
+sudo ufw allow from <LAN_CIDR> to any port 22 proto tcp
+
+# ── Monitoring placeholder (step 14) ──────────────────────────────────────────
+# Promtail pushes logs outbound to Loki — no inbound rule needed.
+# Prometheus pulls metrics inbound. Once your Grafana host's LAN IP is known,
+# uncomment and fill in:
+#   sudo ufw allow from <GRAFANA_HOST_IP> to any port 9100 comment "node-exporter"
+#   sudo ufw allow from <GRAFANA_HOST_IP> to any port 30000:32767 comment "k8s NodePorts (metrics)"
+# ─────────────────────────────────────────────────────────────────────────────
+
+sudo ufw enable
+```
+
+Verify:
+
+```bash
+sudo ufw status verbose
+```
+
+The Tailscale interface rule (`ufw allow in on tailscale0`) is added in
+[step 09 §1](09-connectivity-tailscale.md) once Tailscale is running.
+
+> **Docker and UFW:** Docker inserts iptables rules directly into the kernel,
+> bypassing UFW for any `ports:` binding. `docker-compose.yml` avoids this with
+> `127.0.0.1:` host bindings and `expose:` (container-internal only) — never
+> `0.0.0.0:`. §7 hardens this further by setting `"ip": "127.0.0.1"` in Docker's
+> daemon configuration, making loopback the default for any future service that
+> omits an explicit bind address.
+
+## 5. Install the NVIDIA driver
 
 Ubuntu's `ubuntu-drivers` tool picks the right driver version automatically:
 
@@ -42,7 +204,7 @@ You should see your GPU, driver version, and VRAM. **Record the GPU UUID**
 (`GPU-xxxxxxxx-...`) — optional, used if you want to pin a specific card in
 `docker-compose.yml`.
 
-## 4. Install Docker Engine
+## 6. Install Docker Engine
 
 ```bash
 # Add Docker's official apt repo
@@ -56,12 +218,17 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-# Allow your user to run docker without sudo
-sudo usermod -aG docker $USER
-newgrp docker
+# Create a dedicated service account to own and run the Docker stack.
+# docker group membership is equivalent to passwordless root — any member can
+# mount the host filesystem via `docker run -v /:/host` and escape to a root shell.
+# The interactive admin account must never join the docker group.
+# llm-svc owns the stack and is the only docker group member;
+# all ad-hoc docker commands from the admin account use `sudo docker`.
+sudo useradd -r -s /usr/sbin/nologin llm-svc
+sudo usermod -aG docker llm-svc
 ```
 
-## 5. Install the NVIDIA Container Toolkit
+## 7. Install the NVIDIA Container Toolkit
 
 This lets containers access the GPU via `docker run --gpus`:
 
@@ -74,6 +241,19 @@ curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-contai
 sudo apt update
 sudo apt install -y nvidia-container-toolkit
 sudo nvidia-ctk runtime configure --runtime=docker
+
+# Set loopback as the default bind address for Docker published ports (§4).
+# Docker bypasses UFW for ports: bindings; this prevents accidental LAN exposure
+# from future services that omit an explicit host IP in their ports: entries.
+# nvidia-ctk just wrote daemon.json with the nvidia runtime — merge in the ip key:
+sudo python3 -c "
+import json
+p = '/etc/docker/daemon.json'
+cfg = json.load(open(p))
+cfg['ip'] = '127.0.0.1'
+json.dump(cfg, open(p, 'w'), indent=2)
+"
+
 sudo systemctl restart docker
 ```
 
@@ -84,7 +264,7 @@ sudo systemctl restart docker
 nvidia-smi
 
 # GPU visible inside a container
-docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+sudo docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
 ```
 
 Both should list the GPU and VRAM.

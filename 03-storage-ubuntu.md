@@ -2,8 +2,9 @@
 
 ← [02 Host OS](02-host-os-ubuntu.md) · Next: [04 Deploy stack](04-deploy-stack-ubuntu.md)
 
-EXL2 models load straight into VRAM — keep them on the **NVMe SSD**, not the OS
-disk, so model swaps stay fast.
+> **Overview:** Partition and persistently mount a dedicated NVMe SSD as `/srv/models`, separate from the OS disk, so model weights survive reboots and never compete with OS storage.
+>
+> **Why:** EXL2 model weights range from 10–100+ GB each. Keeping them on a separate NVMe protects the OS disk from exhaustion and gives full sequential read throughput during model loads — critical when swapping between models on a single GPU.
 
 ## 1. Identify the NVMe device
 

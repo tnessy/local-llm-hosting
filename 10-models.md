@@ -2,8 +2,17 @@
 
 ← [09 Tailscale](09-connectivity-tailscale.md) · Next: [11 Optional services](11-optional-comfyui-tabby.md)
 
-Do this once the GPU is in (decision **D9**). You'll download **EXL2** quants,
-wire them into llama-swap, set the context window, and validate tool-calling.
+> **Overview:** Download EXL2-quantized model weights to `/srv/models` via `huggingface-cli` and configure them in `llama-swap-config.yaml` with context window and max sequence length settings.
+>
+> **Why:** The inference engine serves no models until weights are on disk and wired into the llama-swap config. Context window and max sequence length settings here directly affect response quality and VRAM usage.
+>
+> **Placeholders to gather before starting:**
+>
+> | Placeholder | What it is | Where to find it |
+> |---|---|---|
+> | `<HF_TOKEN>` | HuggingFace access token (required for gated models) | huggingface.co → Settings → Access Tokens |
+> | `<org>/<model-exl2>` | HuggingFace repository path of the EXL2 model | huggingface.co/models — search EXL2 quantized variants |
+> | `<local-folder-name>` | Folder name under `/srv/models` for the downloaded weights | Your choice — referenced in `llama-swap-config.yaml` |
 
 ## 1. Pick models by VRAM
 

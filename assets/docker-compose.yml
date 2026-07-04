@@ -14,7 +14,7 @@ services:
     image: home-llm-inference:latest
     container_name: inference
     restart: unless-stopped
-    networks: [llmnet]
+    networks: [backend]
     expose:
       - "8080"                     # llama-swap OpenAI-compatible endpoint (internal only)
     volumes:
@@ -36,16 +36,25 @@ services:
     container_name: litellm
     restart: unless-stopped
     depends_on: [inference]
-    networks: [llmnet]
+    networks: [frontend, backend]    # bridges both networks; only container that can reach inference
     expose:
       - "4000"
     volumes:
       - ./assets/litellm-config.yaml:/app/config.yaml:ro
       - litellm-db:/app/db
-    environment:
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}   # admin key for /key/generate
-      - LITELLM_SALT_KEY=${LITELLM_SALT_KEY}
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    # LITELLM_MASTER_KEY and LITELLM_SALT_KEY are passed via Docker secrets (files
+    # at /run/secrets/) rather than env vars — prevents them appearing in
+    # `docker inspect litellm` output (H-12). The entrypoint wrapper below reads
+    # the files and exports them before starting LiteLLM.
+    secrets:
+      - litellm_master_key
+      - litellm_salt_key
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        export LITELLM_MASTER_KEY="$(cat /run/secrets/litellm_master_key)"
+        export LITELLM_SALT_KEY="$(cat /run/secrets/litellm_salt_key)"
+        exec litellm --config /app/config.yaml --port 4000
 
   # ── Web UI for non-technical friends (auth boundary) ────────────────────────
   open-webui:
@@ -53,7 +62,7 @@ services:
     container_name: open-webui
     restart: unless-stopped
     depends_on: [litellm]
-    networks: [llmnet]
+    networks: [frontend]
     ports:
       - "127.0.0.1:3000:8080"      # local admin/debug only; NOT on the LAN
     volumes:
@@ -72,10 +81,38 @@ services:
     container_name: cloudflared
     restart: unless-stopped
     depends_on: [open-webui, litellm]
-    networks: [llmnet]
+    networks: [frontend]               # frontend only — no path to inference
     command: tunnel --no-autoupdate run
     environment:
       - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}    # from Cloudflare Zero Trust (step 08)
+    user: "65534:65534"                # run as nobody — not root
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  # ── Admin control plane — step 17 ──────────────────────────────────────────
+  # Replace image with your built admin-ui image before enabling.
+  # admin-ui:
+  #   image: your-registry/admin-ui:latest
+  #   container_name: admin-ui
+  #   restart: unless-stopped
+  #   depends_on: [litellm, open-webui]
+  #   networks: [frontend]
+  #   expose:
+  #     - "8080"
+  #   environment:
+  #     - LITELLM_URL=http://litellm:4000
+  #     - AUTHENTIK_URL=http://authentik:9000
+  #     - OPENWEBUI_URL=http://open-webui:8080
+  #   secrets:
+  #     - litellm_master_key
+  #     - authentik_admin_token
+  #     - openwebui_admin_key
+  #     - admin_ui_oidc_secret
 
   # ── OPTIONAL (step 11): Stable Diffusion. Uncomment to enable. ──────────────
   # comfyui:
@@ -113,8 +150,19 @@ services:
   #             capabilities: [gpu]
 
 networks:
-  llmnet:
-    driver: bridge
+  frontend:
+    driver: bridge    # cloudflared + open-webui + litellm; no inference path
+  backend:
+    driver: bridge    # litellm + inference only; not reachable from cloudflared or open-webui
+
+# Docker secrets — files on the host mounted read-only into containers.
+# Not visible in `docker inspect` output unlike environment variables.
+# Created in step 04 §2 at mode 400, owned by root.
+secrets:
+  litellm_master_key:
+    file: /etc/home-llm/litellm_master_key
+  litellm_salt_key:
+    file: /etc/home-llm/litellm_salt_key
 
 volumes:
   models:

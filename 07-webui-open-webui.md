@@ -2,6 +2,16 @@
 
 ← [06 LiteLLM](06-gateway-litellm.md) · Next: [08 Cloudflare](08-connectivity-cloudflare.md)
 
+> **Overview:** Configure Open WebUI as the browser chat interface — create the admin account, disable open signup, and confirm the LiteLLM backend connection before the UI is publicly exposed.
+>
+> **Why:** The first account created becomes admin. Open signup must be disabled before step 08 exposes the URL publicly — one wrong setting here allows anonymous account creation by anyone with the link.
+>
+> **Placeholders to gather before starting:**
+>
+> | Placeholder | What it is | Where to find it |
+> |---|---|---|
+> | `OPENWEBUI_LITELLM_KEY` | LiteLLM virtual key for Open WebUI's backend connection | Minted in step 06 — add to `/opt/home-llm/.env` and restart `open-webui` |
+
 Open WebUI (decision **D6**) is the browser chat UI for non-technical friends and
 your **application-layer auth boundary** (accounts + signup disabled), sitting
 behind Cloudflare Access.

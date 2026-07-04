@@ -11,10 +11,12 @@ Zero Trust → Networks → Tunnels → `home-llm` → **Published application r
 |---|---|
 | `llm.domain.com` | `http://open-webui:8080` |
 | `api.domain.com` | `http://litellm:4000` |
+| `admin.domain.com` | `http://admin-ui:8080` |
+| `auth.domain.com` | `http://authentik-server:9000` |
 
 > The service hostnames are the Docker service names because `cloudflared` runs
-> on the same `llmnet` network. If you instead run cloudflared outside Docker,
-> use `http://localhost:3000` for the UI and publish LiteLLM's port.
+> on the same `frontend` network. In the MicroK8s phase, cloudflared routes to
+> Traefik which dispatches by hostname.
 
 ## 2. Access application — UI (`llm.domain.com`)
 
@@ -28,20 +30,61 @@ Zero Trust → Access → Applications → **Add (Self-hosted)**:
 
 ## 3. Access application — API (`api.domain.com`)
 
-API clients can't do an interactive browser login, so this host is **bypassed**
-at Access and protected by the LiteLLM virtual key + a rate limit instead.
+API clients use a single credential — the LiteLLM virtual key — sent as a
+standard `Authorization: Bearer <key>` header. `api.domain.com` is therefore
+**bypassed** at CF Access; auth, per-user budgets, and rate limits are enforced
+downstream by LiteLLM.
 
 - **Add application (Self-hosted)** for `api.domain.com`
 - **Policy → Bypass**, rule **Everyone**.
-  (Auth is enforced downstream by LiteLLM's bearer key.)
 
-### Optional hardening — service tokens
-For clients that *can* send custom headers (Codex, opencode), add a second
-**Allow** policy with rule **Service Token** and issue a token per such client.
-GUI tools (JetBrains AI Assistant) can't send these, so keep the Bypass policy
-for them. Order policies so Bypass remains the catch-all.
+> **Accepted residual:** no edge-level identity check precedes the LiteLLM key
+> check. The WAF allowlist (step 08 §4) blocks all non-inference paths so
+> unauthenticated callers cannot reach admin endpoints. Admin operations require
+> Tailscale and are never routed through the tunnel.
 
-## 4. WAF rate limit on the API host
+## 4. Access application — Admin UI (`admin.domain.com`)
+
+Zero Trust → Access → Applications → **Add (Self-hosted)**:
+
+- **Application domain:** `admin.domain.com`
+- **Session duration:** 4 hours
+- **Enable cookie refresh** so active sessions extend automatically without
+  forcing re-login mid-task (Zero Trust → Access → Applications → Settings →
+  **Enable binding cookie** / session refresh on activity)
+- **Policy → Allow**, rule type **Emails**: list operator/admin email addresses
+  only — this should be the smallest list of any CF Access application
+- Login method: Authentik OIDC (same IdP as all other services)
+- Everyone not listed is rejected at the Cloudflare edge before reaching the
+  Admin UI
+
+> The Admin UI enforces a second gate: Authentik OIDC with `grp-admin` group
+> check. A user who somehow passes CF Access but is not in `grp-admin` is
+> rejected with 403 at the application layer.
+
+## 5. Access application — Authentik OIDC (`auth.domain.com`)
+
+`auth.domain.com` must be **Bypass / Everyone** — CF Access federates to
+Authentik as its OIDC provider, so an Access policy here creates a circular
+dependency. WAF rules provide the protection layer instead.
+
+Zero Trust → Access → Applications → **Add (Self-hosted)**:
+
+- **Application domain:** `auth.domain.com`
+- **Policy → Bypass**, rule **Everyone**
+
+**WAF path allowlist** (Security → WAF → Custom rules):
+
+| Rule | Expression | Action |
+|---|---|---|
+| Allow OIDC + login paths only | `http.host eq "auth.domain.com" and not http.request.uri.path matches "(?i)^(/.well-known/\|/application/o/\|/if/flow/\|/static/\|/favicon)"` | Block |
+| Rate limit login attempts | `http.host eq "auth.domain.com" and http.request.uri.path matches "(?i)^/if/flow/"` | Rate limit — 10 req/min/IP, block 5 min |
+
+This blocks `/if/admin/` (Authentik admin UI — Tailscale-only access only)
+and `/api/v3/` while allowing the OIDC discovery document, authorization,
+token, and userinfo endpoints required for the login flow.
+
+## 6. WAF rate limit on the API host
 
 Security → WAF → **Rate limiting rules** → Create:
 
@@ -49,7 +92,7 @@ Security → WAF → **Rate limiting rules** → Create:
 - **Then** rate limit, e.g. **60 requests / 1 min per IP** (tune up for heavy
   agent use), action **Block** for 60s.
 
-## 5. DNS note
+## 7. DNS note
 
 Access/Tunnel work as soon as Cloudflare is your **DNS** (nameserver change).
 A full registrar transfer can finish later; it is not a blocker.

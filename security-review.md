@@ -2,97 +2,118 @@
 
 **98 findings** — Critical: 5  High: 29  Medium: 45  Low: 16  Info: 3
 
-Critical items C-1 through C-5 addressed in commit after this review.
+Critical items C-1 through C-5 addressed across two rounds of fixes.
+Round 1 fixes applied after initial review. Round 2 gaps found by adversarial
+re-check and closed in the same commit.
 
 ---
 ## CRITICAL
 
-### ~~C-1~~ — ✅ FIXED — Calico CNI Not Pre-Validated — All NetworkPolicies Silently Unenforced if Missing
-**Location:** 16-workspaces.md §1 — MicroK8s add-ons required  
+### ~~C-1~~ — ✅ FIXED (R1 + R2) — Calico CNI Not Pre-Validated — All NetworkPolicies Silently Unenforced if Missing
+**Location:** 16-workspaces.md §1, §5  
 **Flagged by:** NET-2  
 **Issue:** The entire network isolation model depends on Calico being the active CNI, but there is no enforcement gate — Kubernetes accepts NetworkPolicy resources regardless of whether any CNI enforces them, so a missing or crash-looping Calico results in all policies becoming no-ops with no visible error.  
 **Impact:** If Calico is not correctly active, workspace pods have unrestricted access to the inference engine, LAN hosts, the management plane, and each other — a complete, silent network isolation failure.  
-**Fix:** Add an automated pre-flight check in the orchestrator that confirms Calico DaemonSet pods are all Running/Ready before allowing any workspace creation, and document that Calico must be enabled and verified before any namespace is created.
+**R1 Fix:** Orchestrator pre-flight check; wait-for-Calico documented in §1.  
+**R2 Gaps found:** (a) pre-flight only blocks new launches — running workspaces unprotected on post-launch Calico crash; (b) snap auto-update can restart calico-node during working hours with no alert; (c) direct kubectl/API calls bypass orchestrator pre-flight.  
+**R2 Fix:** Calico watchdog CronJob (§5) suspends all ws-* Deployments on degradation; snap refresh window pinned to maintenance hours (§1). Bypass via direct kubectl noted as accepted residual; Kyverno admission gate documented as upgrade path.
 
-### ~~C-2~~ — ✅ FIXED — LiteLLM Master Key and Admin Endpoints Exposed on Public api.domain.com
-**Location:** 06-gateway-litellm.md §2–3; assets/litellm-config.yaml; 08-connectivity-cloudflare.md §4  
+### ~~C-2~~ — ✅ FIXED (R1 + R2) — LiteLLM Master Key and Admin Endpoints Exposed on Public api.domain.com
+**Location:** 06-gateway-litellm.md §2–3; 08-connectivity-cloudflare.md §4  
 **Flagged by:** AUTH-3, INGRESS-3  
 **Issue:** The Cloudflare tunnel routes api.domain.com directly to litellm:4000 with no path filtering, making /key/generate, /key/delete, /key/info, and /health reachable from the public internet protected only by LITELLM_MASTER_KEY.  
 **Impact:** Any actor who obtains or brute-forces the master key gains full LiteLLM admin access from the internet: minting unlimited keys, revoking all friend keys, and reading all spend data.  
-**Fix:** Block /key/*, /model/info, and /health at the Cloudflare WAF for api.domain.com, and restrict master-key operations to the Tailscale interface (localhost:4000) only; update step 06 instructions accordingly.
+**R1 Fix:** WAF blocklist for `^/(key|user|model/info|health)`; Tailscale-only admin note in step 06.  
+**R2 Gaps found:** (a) blocklist missed /v1/key/*, /budget/*, /team/*, /config/*, /spend/*, /model/new, /model/delete; (b) case-sensitive regex allowed /KEY/generate bypass; (c) blocklist is architecturally weaker than allowlist for an evolving API.  
+**R2 Fix:** Replaced blocklist with strict allowlist — only `/v1/(chat/completions|completions|models|responses|messages|embeddings)` are permitted; case-insensitive `(?i)` flag added; all other paths (including /v1/key/*) blocked by default.
 
-### ~~C-3~~ — ✅ FIXED — Orchestrator ClusterRole Is Effectively Cluster-Admin via Cluster-Wide Secrets CRUD
+### ~~C-3~~ — ✅ FIXED (R1 + R2) — Orchestrator ClusterRole Is Effectively Cluster-Admin via Cluster-Wide Secrets CRUD
 **Location:** 16-workspaces.md §5 RBAC — assets/k8s/llm-platform/orchestrator-rbac.yaml  
 **Flagged by:** AUTH-5, SECRETS-12, ORCHESTRATOR-1, HOST-10  
-**Issue:** The orchestrator's ClusterRole grants create/get/list/watch/patch/delete on secrets with no namespace restriction, meaning the orchestrator service account can read and modify secrets in every namespace including llm-core (LiteLLM master key, TabbyAPI key) and llm-platform (Cloudflare tunnel token, Authentik credentials).  
-**Impact:** A compromised orchestrator process immediately yields every credential in the cluster, enabling full privilege escalation to all services including the inference GPU.  
-**Fix:** Remove secrets (and all other namespace-scoped resources) from the ClusterRole; instead create a Role + RoleBinding in each ws-<username> namespace at provisioning time, limiting the orchestrator's secret access to workspace namespaces it created.
+**Issue:** The orchestrator's ClusterRole grants create/get/list/watch/patch/delete on secrets with no namespace restriction, meaning the orchestrator service account can read and modify secrets in every namespace including llm-core and llm-platform.  
+**Impact:** A compromised orchestrator process immediately yields every credential in the cluster, enabling full privilege escalation to all services.  
+**R1 Fix:** Two-tier RBAC — ClusterRole covers only cluster-scoped resources; per-namespace Roles created in ws-* at provisioning time.  
+**R2 Gaps found:** (a) ClusterRole lacked rbac.authorization.k8s.io permissions, making it impossible for the orchestrator to create the per-namespace RoleBindings it is documented to create — logical contradiction; (b) §10 still said "orchestrator is cluster-admin-equivalent."  
+**R2 Fix:** Added `roles/rolebindings: create` to ClusterRole with a Kyverno policy (restrict-orchestrator-rbac) that confines RoleBindings to ws-* namespaces and the orchestrator-ws Role only; §10 updated to accurately describe the two-tier constraint.
 
-### ~~C-4~~ — ✅ FIXED — Orchestrator ClusterRole Has Cluster-Wide NetworkPolicy Write — Can Erase All Isolation
+### ~~C-4~~ — ✅ FIXED (R1 + R2) — Orchestrator ClusterRole Has Cluster-Wide NetworkPolicy Write — Can Erase All Isolation
 **Location:** 16-workspaces.md §5 RBAC — assets/k8s/llm-platform/orchestrator-rbac.yaml  
 **Flagged by:** NET-12, AUTH-6, ORCHESTRATOR-2  
 **Issue:** The orchestrator ClusterRole grants create/patch/delete on networkpolicies cluster-wide, allowing a compromised orchestrator to delete the inference-ingress policy in llm-core and the workspace-isolation policies in all ws-* namespaces.  
-**Impact:** A single compromised orchestrator process can erase every network boundary in the architecture in one kubectl call, enabling workspace pods to reach the inference engine directly and allowing unrestricted lateral movement.  
-**Fix:** Restrict NetworkPolicy write permission to ws-* namespaces via per-namespace RoleBindings; manage the inference-ingress policy in llm-core through a separate bootstrap process the orchestrator cannot touch.
+**Impact:** A single compromised orchestrator process can erase every network boundary in the architecture, enabling workspace pods to reach the inference engine directly.  
+**R1 Fix:** Moved NetworkPolicy write to per-namespace Roles in ws-* only; inference-ingress in llm-core out of orchestrator scope.  
+**R2 Gaps found:** (a) per-namespace Role still included `networkpolicies: delete`, so a compromised orchestrator could delete workspace-isolation in every ws-* namespace it manages; (b) inference-ingress protection was documentation-only — no technical enforcement.  
+**R2 Fix:** Removed `delete` from networkpolicies verbs in the per-namespace Role (patch remains for template updates); added Kyverno ClusterPolicy (protect-inference-ingress) that denies DELETE on the inference-ingress NetworkPolicy at the admission layer.
 
-### ~~C-5~~ — ✅ FIXED — Cloudflare Tunnel Token Stored in Plaintext — Compromise Grants Full Ingress Hijack
-**Location:** 04-deploy-stack-ubuntu.md §2; assets/docker-compose.yml (cloudflared service); 08-connectivity-cloudflare.md §1  
+### ~~C-5~~ — ✅ FIXED (R1 + R2) — Cloudflare Tunnel Token Stored in Plaintext — Compromise Grants Full Ingress Hijack
+**Location:** 04-deploy-stack-ubuntu.md §2; 08-connectivity-cloudflare.md §5  
 **Flagged by:** INGRESS-1  
-**Issue:** CF_TUNNEL_TOKEN is stored in a plaintext .env file; a leaked token lets an attacker register an additional cloudflared connector on the same tunnel and intercept or MITM all traffic across llm.domain.com, api.domain.com, and *.ws.domain.com.  
-**Impact:** A stolen tunnel token enables interception of all friend traffic, capture of Cloudflare Access JWT cookies and LiteLLM API keys, and persistent re-entry with no visible indicator to the legitimate operator.  
-**Fix:** Store CF_TUNNEL_TOKEN as a Docker secret (not an env var), set .env to chmod 600, enable Cloudflare tunnel connector notifications for new registrations, and rotate the token immediately on any suspected host compromise.
+**Issue:** CF_TUNNEL_TOKEN is stored in a plaintext .env file; a leaked token lets an attacker register an additional cloudflared connector on the same tunnel and MITM all traffic.  
+**Impact:** A stolen tunnel token enables interception of all friend traffic, capture of Access JWT cookies and LiteLLM keys, and persistent re-entry with no visible indicator.  
+**R1 Fix:** Migrated CF_TUNNEL_TOKEN to k8s Secret in MicroK8s phase; connector notifications mentioned.  
+**R2 Gaps found:** (a) .env cleanup step never instructed — token remained in /opt/home-llm/.env after k8s migration; (b) `docker inspect cloudflared` exposes the token to any docker-group member during the Docker Compose phase; (c) dqlite stores k8s Secrets base64 but unencrypted — host filesystem access yields the token; (d) connector notification was one advisory sentence with no actionable substeps or verification.  
+**R2 Fix:** Added explicit `sed -i` .env cleanup step in step 08 §5 post-migration; added docker inspect exposure warning in step 04 §2; added dqlite encryption note referencing EncryptionConfiguration (cross-ref H-14); expanded connector notifications to numbered substeps with dashboard verification.
 
 ---
 ## HIGH
 
-### H-1 — api.domain.com Has No Cloudflare Access Authentication — Edge Is Fully Bypassed
+### H-1 — api.domain.com Has No Cloudflare Access Authentication — Edge Is Fully Bypassed — **ACCEPTED RESIDUAL**
 **Location:** 08-connectivity-cloudflare.md §4; assets/cloudflare-access-notes.md §3  
 **Flagged by:** AUTH-1, INGRESS-2  
 **Issue:** The Cloudflare Access policy for api.domain.com is set to Bypass/Everyone, so any internet client reaches LiteLLM with zero edge-level identity check; the sole gate is the LiteLLM virtual key, and the per-IP WAF rate limit is trivially circumvented with distributed sources.  
-**Impact:** Attackers can freely probe all LiteLLM endpoints, brute-force virtual keys, exploit LiteLLM vulnerabilities, and enumerate models without passing any identity verification at the edge.  
-**Fix:** Make Cloudflare Service Tokens the default for header-capable clients (Codex, Claude Code, Aider), issuing one token per API friend; reserve the Bypass fallback only for clients that genuinely cannot send custom headers and document it as an accepted residual risk.
+**Impact:** Attackers can freely probe all LiteLLM endpoints, brute-force virtual keys, and exploit LiteLLM vulnerabilities without passing any identity verification at the edge.  
+**Decision:** CF Access Service Tokens would close this but require every API client to send two extra headers in addition to the LiteLLM key — breaking the single-credential UX (`Authorization: Bearer <key>`) that all OpenAI-compatible clients expect. The risk is accepted. Mitigating controls: WAF path allowlist blocks all non-inference endpoints; LiteLLM virtual key required for every inference request; per-IP rate limit; admin endpoints Tailscale-only.
 
-### H-2 — No Default-Deny NetworkPolicy in llm-core or llm-platform Namespaces
-**Location:** 16-workspaces.md §4 — Network isolation; assets/k8s/ (no default-deny policy defined)  
+### ~~H-2~~ — ✅ FIXED — No Default-Deny NetworkPolicy in llm-core or llm-platform Namespaces
+**Location:** 16-workspaces.md §4b — Default-deny baseline; §4c — llm-core policies; §4d — llm-platform policies  
 **Flagged by:** NET-1  
 **Issue:** Targeted NetworkPolicies exist for specific pods but no baseline deny-all policy is applied to llm-core or llm-platform, leaving all intra-namespace and cross-namespace traffic unrestricted by default for any pod not explicitly covered.  
 **Impact:** A newly added or compromised pod in llm-core (sidecar, debug pod, future service) can freely reach workspace pods, management services, or the host network; inference egress is completely open, enabling data exfiltration from a compromised inference process.  
-**Fix:** Add a default-deny-all NetworkPolicy (ingress and egress) to llm-core and llm-platform as the first policy applied, then layer explicit allow rules on top for each required traffic flow.
+**Fix (implemented):** Added `default-deny` NetworkPolicy (ingress and egress, `podSelector: {}`) to both llm-core and llm-platform. Layered explicit allow policies on top covering every required traffic flow: `inference-policy`, `litellm-policy`, `open-webui-policy` in llm-core; `cloudflared-policy`, `traefik-policy`, `orchestrator-policy`, `admin-ui-policy`, `authentik-server-policy`, `authentik-worker-policy`, `authentik-postgres-policy`, `authentik-redis-policy` in llm-platform. Also fixes M-3 (inference egress now restricted to kube-dns only).
 
-### H-3 — Race Condition: Workspace Pod May Start Before NetworkPolicy Is Applied
+### ~~H-3~~ — ACCEPTED RESIDUAL — Race Condition: Workspace Pod May Start Before NetworkPolicy Is Applied
 **Location:** 16-workspaces.md §5 — Workspace launch sequence  
 **Flagged by:** NET-3  
 **Issue:** If the workspace-isolation NetworkPolicy is absent or deleted from a namespace when a Deployment is created, the pod starts and has unrestricted network access during the window before Calico wires up the policy to the container's network interface.  
 **Impact:** Code executing at container start (e.g. a supply-chain-compromised package) can establish outbound connections to inference, LAN hosts, or a remote C2 before isolation takes effect.  
-**Fix:** Have the orchestrator verify that workspace-isolation NetworkPolicy is present and matches the expected spec before creating any Deployment, and abort the launch if the policy is missing or mismatched.
+**Residual accepted:** The orchestrator already applies `workspace-isolation` as the first operation at namespace provisioning time, before any Deployment is created (16-workspaces.md §5, step 1). The remaining sub-second window between the k8s API accepting the NetworkPolicy and Calico wiring it to the pod's network interface is an inherent CNI platform limitation not closable without Calico-specific APIs or a Kyverno admission webhook (both disproportionate complexity for this threat model). The practical exploitability of a <100ms window at container startup by a supply-chain payload specifically targeting that window is negligible. The Calico watchdog (§5) mitigates the broader case of Calico being absent or degraded.
 
-### H-4 — No Ingress NetworkPolicy on the LiteLLM Pod — Any In-Cluster Pod Can Reach It
-**Location:** 16-workspaces.md §4 — Network isolation; 06-gateway-litellm.md  
+### ~~H-4~~ — ✅ FIXED — No Ingress NetworkPolicy on the LiteLLM Pod — Any In-Cluster Pod Can Reach It
+**Location:** 16-workspaces.md §4c — litellm-policy  
 **Flagged by:** NET-6  
 **Issue:** The inference-ingress policy restricts who can reach the inference pod, but there is no corresponding ingress policy on the litellm pod itself, so any pod with unrestricted egress (debug pod, monitoring agent, future service) can call LiteLLM on port 4000.  
 **Impact:** A misconfigured or compromised pod anywhere in the cluster can call the LiteLLM API and, if the master key is known, gain full admin access to key management.  
-**Fix:** Add a NetworkPolicy for the litellm pod that restricts ingress to only cloudflared, open-webui, and ws-* namespace pods on port 4000, and restricts litellm egress to only the inference pod on port 8080 and kube-dns on port 53.
+**Fix (implemented):** Added `litellm-policy` in llm-core restricting ingress on port 4000 to: llm-platform pods (traefik, admin-ui, orchestrator), open-webui (llm-core), and namespaces labeled `workspace=true` (ws-* pods) only. LiteLLM egress restricted to inference:8080 and kube-dns:53. The `workspace=true` label is applied by the orchestrator at namespace creation, making workspace pods selectable by a stable namespaceSelector without Kyverno or wildcard patterns.
 
-### H-5 — Gateway allowedRoutes: All Allows Any Namespace to Attach HTTPRoutes — Hostname Hijack Risk
+### ~~H-5~~ — ✅ FIXED — Gateway allowedRoutes: All Allows Any Namespace to Attach HTTPRoutes — Hostname Hijack Risk
 **Location:** 16-workspaces.md §3 (gateway.yaml)  
 **Flagged by:** NET-7, INGRESS-4  
 **Issue:** The Traefik Gateway is configured with allowedRoutes.namespaces.from: All, so any namespace — including ws-* namespaces or any future namespace — can attach an HTTPRoute claiming llm.domain.com or api.domain.com, potentially redirecting legitimate traffic to a malicious service.  
 **Impact:** A compromised orchestrator or any namespace with API write access could hijack production hostnames to harvest Cloudflare Access JWTs, LiteLLM keys, and all LLM interaction data.  
-**Fix:** Change the Gateway to allowedRoutes.namespaces.from: Selector restricted to llm-platform and llm-core, and use a separate Gateway instance for workspace wildcard hostnames with explicit ReferenceGrant policies.
+**Fix (implemented):** Replaced single main-gateway with two restricted gateways. `core-gateway` handles llm.domain.com and api.domain.com with allowedRoutes restricted to llm-platform and llm-core only. `workspace-gateway` handles *.ws.domain.com with allowedRoutes restricted to llm-platform only. The orchestrator creates workspace HTTPRoutes in llm-platform (not in ws-* namespaces), referencing workspace Services cross-namespace via a ReferenceGrant provisioned at launch. ws-* namespaces cannot attach routes to either gateway.
 
-### H-6 — Docker Bridge Network llmnet Has No Inter-Container Egress Restrictions
+### ~~H-6~~ — ✅ FIXED — Docker Bridge Network llmnet Has No Inter-Container Egress Restrictions
 **Location:** assets/docker-compose.yml — networks: llmnet; 04-deploy-stack-ubuntu.md  
 **Flagged by:** NET-10  
 **Issue:** All four Docker services (inference, litellm, open-webui, cloudflared) share a single bridge network with no iptables or network segmentation, so any container can reach any other on any port — including cloudflared and open-webui reaching inference on port 8080, bypassing LiteLLM entirely.  
 **Impact:** A compromise of open-webui or cloudflared gives direct access to the inference endpoint, bypassing all LiteLLM authentication, per-user budgets, and rate limits.  
-**Fix:** Split into two Docker networks: a frontend network (cloudflared, open-webui, litellm) and a backend network (litellm, inference only), so cloudflared and open-webui have no direct path to the inference engine.
+**Fix (implemented):** Replaced llmnet with two Docker networks. `frontend` (cloudflared + open-webui + litellm) handles all user-facing traffic. `backend` (litellm + inference only) is the inference path. cloudflared and open-webui have no route to inference. litellm bridges both networks as the sole authorised caller. Fixed alongside H-26.
 
-### H-7 — Workspace emptyDir /tmp Has No Size Limit — Node-Wide DoS via Disk Exhaustion
+### ~~H-8~~ — ✅ FIXED — All Third-Party Container Images Use Floating Mutable Tags — Supply Chain Risk
+**Location:** assets/docker-compose.yml lines 35, 52, 72; assets/inference/Dockerfile line 8; assets/workspace-base/Dockerfile line 6  
+**Flagged by:** CONTAINER-2, OPS-1  
+**Fix (implemented):** Added digest-pinning procedure to step 04 §4. Operators pull images immediately after staging, record SHA-256 digests via `docker inspect --format='{{index .RepoDigests 0}}'`, and write `image: <name>:<tag>@sha256:<digest>` into docker-compose.yml before first deploy. Same procedure covers the TabbyAPI base image (inference/Dockerfile FROM line) and the code-server base image (workspace-base/Dockerfile). Step 14 container update procedure (H-27) extends this to deliberate re-pinning on every update. Also resolves M-30 (same issue, duplicate finding).
+
+### ~~H-9~~ — ✅ FIXED — Inference Image and llama-swap Binary Not Pinned or Integrity-Verified
+**Location:** assets/inference/Dockerfile lines 8 and 11–13  
+**Flagged by:** CONTAINER-3, CONTAINER-4, OPS-2  
+**Fix (implemented):** Replaced `ADD <url>` + `RUN chmod` with a `RUN wget | sha256sum -c | chmod` chain that downloads the binary and verifies it against `ARG LLAMA_SWAP_SHA256` in a single layer — build fails with a clear message if the arg is empty or the hash mismatches. Step 04 §4 shows how to compute the hash (`curl | sha256sum`) and set the ARG default in the Dockerfile before building. Base image pinned via the H-8 procedure (FROM line updated with digest at first deploy).
+
+### ~~H-7~~ — ✅ FIXED — Workspace emptyDir /tmp Has No Size Limit — Node-Wide DoS via Disk Exhaustion
 **Location:** 16-workspaces.md §6 — Workspace pod spec (volumes.tmp emptyDir: {})  
 **Flagged by:** CONTAINER-1  
-**Issue:** The workspace pod mounts /tmp as an emptyDir with no sizeLimit, so a workspace process can fill /tmp until the node hits its kubelet eviction threshold, starving all other pods on the node of disk space.  
-**Impact:** A semi-hostile workspace user can trigger node-wide pod eviction with a trivial one-liner, taking down inference and LiteLLM for all users.  
-**Fix:** Set emptyDir: { sizeLimit: "500Mi" } on the /tmp volume and add ephemeral-storage limits to the namespace LimitRange.
+**Issue:** Workspace /tmp mounted as an unbounded emptyDir — a single user could fill the node disk and trigger cluster-wide eviction.  
+**Fix (implemented):** `emptyDir: {sizeLimit: "500Mi"}` set on the /tmp volume (§6 pod spec). LimitRange (§7) now includes `default.ephemeral-storage: 500Mi` and `defaultRequest.ephemeral-storage: 100Mi`. ResourceQuota (§7) includes `requests.ephemeral-storage: 1Gi` as a namespace-level cap. Kubelet enforces the emptyDir sizeLimit via periodic du checks and evicts the pod if /tmp exceeds the limit, containing the blast radius to a single workspace.
 
 ### H-8 — All Third-Party Container Images Use Floating Mutable Tags — Supply Chain Risk
 **Location:** assets/docker-compose.yml lines 35, 52, 72; assets/workspace-base/Dockerfile line 3 (codercom/code-server:latest, ghcr.io/berriai/litellm:main-stable, ghcr.io/open-webui/open-webui:main, cloudflare/cloudflared:latest)  
@@ -108,155 +129,152 @@ Critical items C-1 through C-5 addressed in commit after this review.
 **Impact:** A compromised upstream image or a MITM during a release-tag re-point substitutes the inference entrypoint, which runs with direct NVIDIA GPU access and read-write access to all model weights at /srv/models.  
 **Fix:** Pin the base image to a SHA-256 digest and add a RUN step that verifies the llama-swap binary SHA-256 against the published release checksum before chmod +x.
 
-### H-10 — .env File Created Without Restrictive Permissions — All Secrets World-Readable
+### ~~H-10~~ — ✅ FIXED — .env File Created Without Restrictive Permissions — All Secrets World-Readable
 **Location:** 04-deploy-stack-ubuntu.md §2; assets/.env.example  
 **Flagged by:** SECRETS-1  
 **Issue:** The guide creates /opt/home-llm/.env containing all service credentials but never sets file permissions, leaving it at the system umask default (typically 644 — world-readable).  
 **Impact:** Any local user or process with filesystem read access can extract CF_TUNNEL_TOKEN, LITELLM_MASTER_KEY, TABBY_API_KEY, and all other secrets from the .env file.  
-**Fix:** Add an explicit chmod 600 /opt/home-llm/.env immediately after the cp .env.example .env step, and set the directory to chmod 750 or 700.
+**Fix (implemented):** `chmod 600 .env` and `chmod 750 /opt/home-llm` added immediately after `cp .env.example .env` in step 04 §2. All subsequent `.env` touch points verified safe: step 06 updated to use `nano` (not shell redirection) when writing `OPENWEBUI_LITELLM_KEY`; step 08 `sed -i` preserves mode 600 (GNU sed on Ubuntu calls `fchmod()` before rename); `/tmp/cf-token` pre-created at mode 600 with `install -m 600` before the `>` redirect.
 
-### H-11 — No .gitignore for .env — Risk of Accidental Secret Commit
+### ~~H-11~~ — ✅ FIXED — No .gitignore for .env — Risk of Accidental Secret Commit
 **Location:** 04-deploy-stack-ubuntu.md §2; assets/.env.example  
 **Flagged by:** SECRETS-3  
 **Issue:** The guide warns against committing .env but never instructs users to add it to a .gitignore in /opt/home-llm, so initialising a git repo for config management will include the .env by default.  
 **Impact:** If the directory is pushed to any remote, all secrets are permanently embedded in git history and cannot be removed without history rewriting.  
-**Fix:** Add a step creating /opt/home-llm/.gitignore containing .env immediately after the directory is staged, and note that git history scrubbing is required if a .env is ever accidentally committed.
+**Fix (implemented):** `echo ".env" >> /opt/home-llm/.gitignore` added to step 04 §2 immediately after the `chmod` steps, in the same block that creates the file.
 
-### H-12 — LITELLM_MASTER_KEY and LITELLM_SALT_KEY Exposed via docker inspect
+### ~~H-12~~ — ✅ FIXED — LITELLM_MASTER_KEY and LITELLM_SALT_KEY Exposed via docker inspect
 **Location:** assets/docker-compose.yml (litellm service environment: section)  
 **Flagged by:** SECRETS-7  
-**Issue:** Both keys are passed as Docker environment variables, making them readable by any user in the docker group via docker inspect litellm.  
-**Impact:** Any docker-group member can extract the master key for full LiteLLM admin control and the salt key to perform offline brute-forcing of hashed virtual keys from the database.  
-**Fix:** Pass LITELLM_MASTER_KEY and LITELLM_SALT_KEY via Docker secrets or a mounted file with mode 400, not environment variables.
+**Issue:** Both keys were passed as Docker environment variables, making them readable via `docker inspect litellm`.  
+**Fix (implemented):** Keys removed from `environment:` and moved to Docker secrets (`secrets:` stanza in compose, files at `/etc/home-llm/litellm_{master,salt}_key`, mode 400 root-owned). Docker secrets are mounted at `/run/secrets/` and do not appear in `docker inspect` output. An entrypoint wrapper (`/bin/sh -c`) reads the files and exports them as env vars before starting LiteLLM. Step 04 §2 adds the secret file creation step. `.env.example` updated to remove these keys and explain the split.
 
-### H-13 — LITELLM_SALT_KEY Rotation Is Destructive and Undocumented
+### ~~H-13~~ — ✅ FIXED — LITELLM_SALT_KEY Rotation Is Destructive and Undocumented
 **Location:** 14-operations.md §Key & access hygiene; assets/.env.example  
 **Flagged by:** SECRETS-10  
-**Issue:** LITELLM_SALT_KEY is used to hash all virtual keys in the database; rotating it silently invalidates every existing virtual key, but this destructive behavior is not documented anywhere in the operations guide.  
-**Impact:** An operator who rotates the salt key expecting normal key rotation will simultaneously break access for all friends, with no documented recovery procedure; conversely, a leaked salt key enables offline brute-forcing of virtual keys from the database.  
-**Fix:** Add a prominent warning in step 14 and in .env.example that LITELLM_SALT_KEY must never be rotated without first re-issuing all virtual keys, and document the full re-issuance procedure.
+**Issue:** LITELLM_SALT_KEY rotation silently invalidates every existing virtual key with no documented recovery procedure.  
+**Fix (implemented):** Warning comment added to `.env.example` immediately above `LITELLM_SALT_KEY`. Step 14 Key & access hygiene now has a dedicated bullet explaining that the salt key must be treated as permanent, distinguishing it from `LITELLM_MASTER_KEY` (safe to rotate), and documenting the four-step coordinated rotation procedure (notify → list keys → update + restart → re-mint) for the case where rotation becomes unavoidable.
 
-### H-14 — Kubernetes Secrets Not Encrypted at Rest in etcd (MicroK8s Default)
-**Location:** 16-workspaces.md §5–§6 (orchestrator and workspace pod spec)  
+### ~~H-14~~ — ✅ FIXED — Kubernetes Secrets Not Encrypted at Rest in etcd (MicroK8s Default)
+**Location:** 16-workspaces.md §1 (MicroK8s setup)  
 **Flagged by:** SECRETS-11  
-**Issue:** MicroK8s does not enable etcd encryption at rest by default, so per-workspace LiteLLM keys stored as Kubernetes Secrets are base64-encoded plaintext on disk and readable by any process with direct etcd or filesystem access.  
-**Impact:** Physical access to the host or access to the etcd data directory exposes all workspace LiteLLM keys in plaintext; the orchestrator's cluster-wide secret read permission (see C-3) makes this a single-API-call exfiltration from any compromised process.  
-**Fix:** Enable Kubernetes EncryptionConfiguration (AES-GCM or secretbox) on the MicroK8s kube-apiserver, then re-encrypt existing secrets by piping them back through kubectl replace.
+**Issue:** MicroK8s does not enable encryption at rest by default — Secrets are base64-encoded plaintext in the dqlite data directory, readable by any process with host filesystem access.  
+**Fix (implemented):** `secretbox` (XSalsa20 + Poly1305 AEAD) `EncryptionConfiguration` added to 16-workspaces.md §1. Steps: generate 32-byte key via `openssl rand -base64 32`; write config to `/var/snap/microk8s/current/args/encryption-config.yaml` (mode 400, root-owned); append `--encryption-provider-config=...` to `/var/snap/microk8s/current/args/kube-apiserver`; `sudo snap restart microk8s`; re-encrypt all existing Secrets with `kubectl get secrets --all-namespaces -o json | kubectl replace -f -`. The `identity: {}` fallback provider is listed last to allow the one-time re-encryption pass to read pre-existing plaintext Secrets. Key rotation procedure documented (add key2 above key1 → restart → re-encrypt → remove key1 → restart).
 
-### H-15 — Authentik Admin Credentials and Secret Key Have No Documented Setup or Hardening
-**Location:** 15-identity-sso.md §Setup outline  
+### ~~H-15~~ — ✅ FIXED — Authentik Admin Credentials and Secret Key Have No Documented Setup or Hardening
+**Location:** 15-identity-sso.md §Setup outline; §Authentik hardening  
 **Flagged by:** SECRETS-15  
-**Issue:** Step 15 deploys Authentik but provides no guidance on generating AUTHENTIK_SECRET_KEY, setting a strong postgres password, disabling the default akadmin account, or restricting the Authentik admin UI to Tailscale.  
-**Impact:** A default or weakly configured Authentik instance is the single point of failure for all SSO; compromising it allows adding an attacker to any group, modifying OIDC applications, and breaking all identity-based access controls.  
-**Fix:** Add explicit steps to generate AUTHENTIK_SECRET_KEY with openssl rand -hex 32, set a strong postgres password, disable akadmin after creating a named admin, enforce MFA on the admin account, and expose the admin UI only over Tailscale.
+**Issue:** Step 15 deployed Authentik with no guidance on secret generation, postgres password, akadmin deactivation, or admin UI access restriction.  
+**Fix (implemented):** New "§Secrets" sub-section added to Authentik hardening: `openssl rand -hex 32` for both `AUTHENTIK_SECRET_KEY` and the postgres password, with a prominent permanence warning for the secret key (same pattern as `LITELLM_SALT_KEY`). New "§Admin UI access" sub-section documents `kubectl port-forward` over Tailscale as the sole access path for the admin UI (WAF already blocks `/if/admin/` on the public tunnel), with a Docker Compose SSH port-forward fallback for the pre-MicroK8s phase. akadmin deactivation, MFA enforcement, and brute-force lockout were already documented in prior hardening sections. Setup outline step 1 no longer references the security review document.
 
-### H-16 — SSH Not Hardened and Root SSH Access Normalized in Tailscale ACL
+### ~~H-16~~ — ✅ FIXED — SSH Not Hardened and Root SSH Access Normalized in Tailscale ACL
 **Location:** 09-connectivity-tailscale.md §4; 02-host-os-ubuntu.md; assets/tailscale-acl.json lines 22–27  
 **Flagged by:** HOST-1, HOST-4  
 **Issue:** The guide presents SSH hardening (key-only auth, PermitRootLogin no, ListenAddress binding) as advisory rather than mandatory, and the Tailscale ACL explicitly lists root as a permitted SSH user, normalizing direct root access.  
 **Impact:** SSH remaining on 0.0.0.0 exposes it to LAN brute-force, and permitting root login means a successful credential attack yields immediate full host compromise with no privilege escalation step needed.  
-**Fix:** Make SSH hardening mandatory in step 02 (PermitRootLogin no, PasswordAuthentication no, ListenAddress <tailscale-ip>), and remove root from the Tailscale SSH ACL users list, relying solely on sudo for privileged operations.
+**Fix (implemented):** Added mandatory SSH hardening section (step 02 §3): PermitRootLogin no, PasswordAuthentication no, phased key-onboarding workflow documented, per-user Match block template included as a comment. ListenAddress binding (LAN + Tailscale IPs) made mandatory in step 09 §4 with `ss -tlnp` verification gate. Root removed from Tailscale SSH ACL `users` list in assets/tailscale-acl.json — only `autogroup:nonroot` permitted. Also resolves M-17 and M-19.
 
-### H-17 — No Host Firewall (UFW) Configured — All Host Ports Unrestricted on LAN
-**Location:** 02-host-os-ubuntu.md; 09-connectivity-tailscale.md §5  
+### ~~H-17~~ — ✅ FIXED — No Host Firewall (UFW) Configured — All Host Ports Unrestricted on LAN
+**Location:** 02-host-os-ubuntu.md §4; 09-connectivity-tailscale.md §1, §5  
 **Flagged by:** HOST-2  
 **Issue:** UFW ships inactive on Ubuntu Server 24.04 and the guide never enables it, leaving all host ports and any accidentally LAN-bound services reachable from the local network with no OS-level defence.  
-**Impact:** Any service that binds to a non-loopback address — including MicroK8s NodePorts, Docker published ports, or misconfigured future containers — is immediately accessible from the LAN without authentication.  
-**Fix:** Add a mandatory UFW setup step in step 02 (ufw default deny incoming, allow on Tailscale interface, enable), and document that Docker's iptables rules bypass UFW for published ports, requiring daemon.json iptables: false plus explicit nftables rules for fine-grained control.
+**Impact:** Any service that binds to a non-loopback address — including MicroK8s NodePorts, Docker published ports, or misconfigured future containers — is immediately accessible from the LAN without authentication. Secondary risk: IPv6 bypasses NAT entirely; a globally routable IPv6 prefix (common on modern ISPs) would make open host ports directly internet-facing.  
+**Fix (implemented):** Added mandatory UFW section (step 02 §4): `default deny incoming / default allow outgoing`, SSH allowed from operator-specified `<LAN_CIDR>`, monitoring placeholder for Prometheus scrape rules (Grafana host IP TBD — step 14). `ufw allow in on tailscale0` added to step 09 §1 post-`tailscale up`. Docker bypass mitigated via `"ip": "127.0.0.1"` merged into daemon.json in step 02 §7 (after nvidia-ctk writes the nvidia runtime entry) — loopback is now the default bind address for any future `ports:` entry that omits an explicit host IP; existing compose services already use `127.0.0.1:` bindings and `expose:` only. UFW manages ip6tables alongside iptables, so IPv6 internet exposure is also covered.
 
-### H-18 — No Automatic Security Patching Configured on a 24/7 Internet-Facing Server
-**Location:** 02-host-os-ubuntu.md; 14-operations.md  
+### ~~H-18~~ — ✅ FIXED — No Automatic Security Patching Configured on a 24/7 Internet-Facing Server
+**Location:** 02-host-os-ubuntu.md §2; 14-operations.md  
 **Flagged by:** HOST-3  
 **Issue:** The guide performs a one-time apt upgrade at setup and mentions manual upgrades in operations, but never installs or configures unattended-upgrades for a server that runs continuously with a public-facing Cloudflare tunnel.  
 **Impact:** Known CVEs in OpenSSH, the Linux kernel, or glibc accumulate between manual upgrade runs, leaving the host exploitable during the disclosure-to-patch window.  
-**Fix:** Add a mandatory step in step 02 to install and configure unattended-upgrades for security updates, with automatic reboots on kernel updates during a low-traffic maintenance window.
+**Fix (implemented):** Added `timedatectl set-timezone` as the first step in step 02 §2 — the reboot window uses the system clock. `unattended-upgrades` configured for Ubuntu `-security` origins only; `nvidia-*` and `libnvidia-*` blacklisted (driver updates require manual testing). Automatic reboot at 03:00 system time with `Automatic-Reboot-WithUsers "false"`. `14-operations.md` Updates section updated to reflect the automatic/manual/NVIDIA split. **H-29 dependency:** full post-reboot health visibility requires (a) Promtail systemd unit `TimeoutStopSec=30` to flush its buffer before shutdown completes, and (b) a Grafana heartbeat alert firing if the LLM server stops sending logs for >5–10 minutes — both to be implemented in step 14.
 
-### H-19 — MicroK8s API Server Binds to All Interfaces by Default — LAN-Exposed
-**Location:** 16-workspaces.md §1–2; 04-deploy-stack-ubuntu.md  
+### ~~H-19~~ — ✅ ADDRESSED (via H-17) — MicroK8s API Server Binds to All Interfaces by Default — LAN-Exposed
+**Location:** 16-workspaces.md §1; 02-host-os-ubuntu.md §4; 09-connectivity-tailscale.md §1  
 **Flagged by:** HOST-7  
 **Issue:** MicroK8s binds the kube-apiserver to 0.0.0.0:16443 by default, and no step restricts it to the Tailscale interface; combined with the absent host firewall (H-17), the k8s API server is reachable from the LAN.  
 **Impact:** LAN-accessible kube-apiserver enables credential enumeration and, if any service account token leaks via a workspace pod breakout, it can be replayed from any LAN host to gain cluster-level access.  
-**Fix:** Add a step to set --bind-address=<tailscale-ip> in /var/snap/microk8s/current/args/kube-apiserver and restart MicroK8s, then verify with ss -tlnp | grep 16443; pair with a UFW rule blocking port 16443 from LAN interfaces.
+**Fix (addressed via H-17):** UFW `default deny incoming` (step 02 §4) blocks all inbound LAN access to port 16443; `ufw allow in on tailscale0` (step 09 §1) permits Tailscale-based remote kubectl. The apiserver bind-address is intentionally left at `0.0.0.0` — `--bind-address` takes a single IP, so binding to the Tailscale IP would break local `microk8s kubectl` which uses `127.0.0.1:16443` over loopback. Accepted residual: the apiserver process listens on all interfaces; UFW is the enforcement layer. Recovery path if Tailscale is unavailable: LAN SSH (port 22 open from LAN CIDR) → `microk8s kubectl` locally over loopback is always accessible from the host. Remote kubeconfig (Tailscale IP substitution) and verification steps added to step 16 §1.
 
-### H-20 — Docker Group Membership Is Effective Root — Unprivileged Escalation Path
-**Location:** 02-host-os-ubuntu.md §4  
+### ~~H-20~~ — ✅ FIXED — Docker Group Membership Is Effective Root — Unprivileged Escalation Path
+**Location:** 02-host-os-ubuntu.md §6; 04-deploy-stack-ubuntu.md §1, §6  
 **Flagged by:** HOST-12  
 **Issue:** Step 02 adds the primary user to the docker group, which is equivalent to passwordless root because docker run -v /:/host mounts the entire host filesystem without any further privilege check.  
 **Impact:** Any code execution as the server user — via SSH, a kubeconfig leak, or a compromised container exec — can trivially escalate to root, and the systemd service unit running as that user has the same implicit capability.  
-**Fix:** Evaluate Docker rootless mode for the inference stack (compatible with recent NVIDIA Container Toolkit), or create a dedicated llm-svc service account for the systemd unit and never add the interactive admin user to the docker group.
+**Fix (implemented):** Created `llm-svc` system account (no login shell) in step 02 §6; `llm-svc` is the only docker group member and owns `/opt/home-llm`. The interactive admin account is never added to the docker group — all ad-hoc docker commands use `sudo docker`. Systemd unit updated to `User=llm-svc`. Also closes M-57 (same risk, documentation-level variant).
 
-### H-21 — Namespace Naming Collision: Crafted Username Can Target Existing Namespaces
+### ~~H-21~~ — ✅ FIXED (via H-24) — Namespace Naming Collision: Crafted Username Can Target Existing Namespaces
 **Location:** 16-workspaces.md §5 — Orchestrator namespace creation logic  
 **Flagged by:** ORCHESTRATOR-3  
-**Issue:** The orchestrator creates namespaces as ws-<preferred_username> with no username validation or blocklist; an Authentik account named llm-core would cause the orchestrator to attempt to create or deploy resources into ws-llm-core, which could collide with or shadow existing infrastructure namespaces.  
-**Impact:** A workspace Deployment landed in a wrong namespace inherits that namespace's NetworkPolicy posture rather than workspace-isolation, potentially allowing direct inference access; malformed namespace names can also corrupt orchestrator state.  
-**Fix:** Enforce a strict username regex allowlist (e.g. ^[a-z0-9][a-z0-9-]{0,28}[a-z0-9]$), maintain a blocklist of reserved prefixes (kube, llm, default), and verify before resource creation that the target namespace carries the managed-by: workspace-orchestrator label.
+**Issue:** The orchestrator created namespaces as `ws-<preferred_username>` with no validation; an Authentik account named `llm-core` would cause the orchestrator to target `ws-llm-core`, potentially colliding with infrastructure namespaces and inheriting their NetworkPolicy posture.  
+**Fix (via H-24):** All Kubernetes resource names are now derived from the immutable OIDC `sub` UUID (`ws-<uuid>`, `home-<uuid>`). A UUID cannot collide with any human-readable namespace name. Username validation and prefix blocklists are no longer necessary as a primary control; the sub UUID provides the isolation by construction.
 
-### H-22 — Workspace Activity API Controlled by the Workspace Pod — Idle TTL Spoofable
+### ~~H-22~~ — ✅ FIXED — Workspace Activity API Controlled by the Workspace Pod — Idle TTL Spoofable
 **Location:** 16-workspaces.md §5 — Idle TTL polling  
 **Flagged by:** ORCHESTRATOR-4  
-**Issue:** The orchestrator polls the workspace pod's own HTTP activity endpoint to decide when to scale to zero; a workspace user can trivially serve a fake 'active' response to prevent auto-shutdown indefinitely.  
-**Impact:** Users monopolise CPU, memory, and LiteLLM budget allocation indefinitely, starving other users and increasing inference costs with no server-enforced limit.  
-**Fix:** Use Kubernetes metrics-server CPU/memory as the primary idle signal (a truly idle container shows near-zero CPU regardless of HTTP responses) and enforce an absolute maximum workspace lifetime independent of activity.
+**Issue:** Orchestrator polled the pod's own HTTP activity endpoint for idle detection — trivially spoofable. No hard maximum lifetime existed.  
+**Fix (implemented):** Step 3 updated with two independent stop conditions: (1) metrics-server CPU as the idle signal — near-zero CPU cannot be spoofed from inside the pod regardless of what HTTP responses it serves; (2) a hard maximum workspace lifetime (default 24 h from `launched_at`, stored in the workspaces table) that triggers a stop independently of CPU activity. `launched_at` column added to the workspaces DB schema and set on every launch.
 
-### H-23 — LiteLLM Key Revocation on Workspace Destroy Is Not Atomic — Orphaned Keys Persist
+### ~~H-23~~ — ✅ FIXED — LiteLLM Key Revocation on Workspace Destroy Is Not Atomic — Orphaned Keys Persist
 **Location:** 16-workspaces.md §5 — Destroy flow  
 **Flagged by:** ORCHESTRATOR-5  
-**Issue:** The destroy sequence deletes the Kubernetes Secret before revoking the LiteLLM key; if the orchestrator crashes or the revocation call fails after the Secret is deleted, the key value is irrecoverably lost from Kubernetes but remains valid in LiteLLM's database.  
-**Impact:** A user who exfiltrated their workspace key retains full LiteLLM API access with the original budget after workspace destruction, with no audit trail linking orphaned keys to former workspaces.  
-**Fix:** Reverse the destroy order to revoke the LiteLLM key first (verify via /key/info returning 404) before deleting the Kubernetes Secret, and store the key alias in the orchestrator database independently so revocation can be retried even if the Secret is gone.
+**Issue:** Destroy sequence deleted the k8s Secret before revoking the LiteLLM key; a crash mid-sequence left the key value irrecoverably lost but still valid in LiteLLM's database.  
+**Fix (implemented):** Two-part fix: (1) `litellm_key_alias` column added to the workspaces DB schema — written at key mint time, before the k8s Secret is created, so the alias is always available for retry regardless of Secret state. (2) Destroy and deprovision sequences now read the alias from the DB (not the Secret), call `/key/delete`, verify 404 before touching any k8s resource, clear the DB alias after confirmed revocation, and halt with an error if revocation fails rather than proceeding to Secret deletion with an unrevoked key. Orchestrator startup recovery procedure added: scan for rows where `litellm_key_alias IS NOT NULL` with no active Deployment and retry revocation for each.
 
-### H-24 — Workspace Resources Keyed on Mutable preferred_username — Identity Confusion on Rename
+### ~~H-24~~ — ✅ FIXED — Workspace Resources Keyed on Mutable preferred_username — Identity Confusion on Rename
 **Location:** 16-workspaces.md §5 and §6 — PVC persistence; 15-identity-sso.md — OIDC login flow  
 **Flagged by:** ORCHESTRATOR-6, ORCHESTRATOR-7  
 **Issue:** The orchestrator derives namespace names, PVC names, and all workspace resources from the OIDC preferred_username claim, which is admin-editable in Authentik; renaming a user or recycling a username routes the new account to the previous user's namespace and home PVC.  
 **Impact:** A username recycle grants the new user access to the previous user's persistent data, shell history, cached credentials, and any secrets written to the home directory; a compromised Authentik admin can re-route any user's workspace.  
-**Fix:** Use the immutable OIDC sub claim as the internal primary key for all orchestrator records and Kubernetes resource names, displaying preferred_username only in the UI.
+**Fix (implemented):** Orchestrator uses the immutable OIDC `sub` UUID as the primary key for all Kubernetes resource names (`ws-<sub>` namespace, `home-<sub>` PVC, `litellm-key` Secret). `preferred_username` is cached as `display_name` only — never used to name or locate resources.  
+Workspace hostname (`<slug>.ws.domain.com`) is a stable alias set once at first provisioning in a `hostname_registry` table (`slug → sub`, status: `active | reserved | released`). Collision check runs at provisioning time only; slug does not auto-update on Authentik rename, so URLs are stable across username changes. Slug is marked `reserved` across workspace destroy/relaunch cycles and `released` only on full deprovision — preventing recycling until explicitly freed. Also eliminates H-21 (namespace collision via crafted username) as a side effect.
 
-### H-25 — Orchestrator ClusterRole Grants Namespace Delete Cluster-Wide — Can Destroy llm-core or kube-system
+### H-25 — ⚠️ ACCEPTED RESIDUAL — Orchestrator ClusterRole Grants Namespace Delete Cluster-Wide — Can Destroy llm-core or kube-system
 **Location:** 16-workspaces.md §5 RBAC — assets/k8s/llm-platform/orchestrator-rbac.yaml  
 **Flagged by:** ORCHESTRATOR-14  
-**Issue:** The orchestrator ClusterRole grants delete on namespaces with no restriction, meaning a compromised orchestrator or an injection attack through its API can delete llm-core, llm-platform, or kube-system.  
-**Impact:** Deleting kube-system would be catastrophic and potentially unrecoverable; deleting llm-core destroys the LiteLLM and inference pods, causing a full service outage.  
-**Fix:** Add a ValidatingAdmissionWebhook (OPA/Gatekeeper) that rejects deletion of any namespace not matching ws-* or not labelled managed-by: workspace-orchestrator, effectively making protected namespaces immutable from the orchestrator's perspective.
+**Issue:** The orchestrator ClusterRole grants `namespaces: delete` cluster-wide. A compromised orchestrator could delete `llm-core`, `llm-platform`, or `kube-system`.  
+**Residual accepted because:** RBAC has no namespace-name pattern syntax, so the `ws-*` scope cannot be enforced at the RBAC layer without a ValidatingAdmissionWebhook. A webhook (Kyverno, OPA/Gatekeeper) adds a new runtime dependency not present elsewhere in the stack — assessed as disproportionate for this home server threat model, consistent with the H-3 decision. The exploit path requires the orchestrator to be compromised (admin-only, Tailscale + `grp-admin` gated), then specifically targeting namespace deletion rather than the many higher-value actions available to a compromised orchestrator.  
+**Mitigations in place:** Two-tier RBAC structurally prevents the orchestrator from reading Secrets or writing NetworkPolicies outside `ws-*`. Tailscale + `grp-admin` restricts who can reach the orchestrator API. Design intent — `namespaces: delete` is called only on `ws-*` namespaces at deprovision — is documented in §10 security caveats.  
+**Upgrade path:** Install Kyverno and add a `ClusterPolicy` denying DELETE on the orchestrator SA for any namespace not matching `ws-*` if the threat model expands (e.g., less-trusted operators, or multi-operator deployment).
 
-### H-26 — cloudflared Is Single Point of Failure with Broad Internal Network Access
+### ~~H-26~~ — ✅ FIXED — cloudflared Is Single Point of Failure with Broad Internal Network Access
 **Location:** README.md (service map); assets/docker-compose.yml (cloudflared service); 16-workspaces.md §9  
 **Flagged by:** INGRESS-5  
 **Issue:** The single cloudflared process fronts all three public hostnames and in the Docker deployment shares llmnet with inference, litellm, open-webui, and authentik, so a container escape gives direct unauthenticated access to every internal service.  
 **Impact:** Compromising cloudflared yields full read/write access to all internal services: Open WebUI accounts and chat history, LiteLLM key management, Authentik admin, workspace pods, and the tunnel token for persistent external re-entry.  
-**Fix:** In Docker, move cloudflared to a restricted network with only the services it needs to proxy; in MicroK8s, apply an egress NetworkPolicy limiting cloudflared to traefik:80 only, and run cloudflared as a non-root user with a read-only filesystem.
+**Fix (implemented):** Docker network split (H-6) removes inference from cloudflared's reachable network. cloudflared container hardened: runs as UID/GID 65534 (nobody), read-only filesystem, tmpfs on /tmp, no-new-privileges, all capabilities dropped. In MicroK8s phase, egress NetworkPolicy on the cloudflared pod limits it to traefik:80 only.
 
-### H-27 — Update Process Performs No Digest Verification Before Deployment
+### ~~H-27~~ — ✅ FIXED — Update Process Performs No Digest Verification Before Deployment
 **Location:** 14-operations.md — Updates section  
 **Flagged by:** OPS-3  
-**Issue:** Step 14 instructs docker compose pull && docker compose up -d with no guidance to verify image digests, compare against a known-good baseline, or perform any staging before deploying to production.  
-**Impact:** Combined with floating mutable tags (H-8, H-9), the update process automatically deploys any content served under the configured tag with no human review of what changed, giving a supply chain attacker guaranteed production deployment.  
-**Fix:** Record and compare image digests before and after pulling (docker inspect --format='{{index .RepoDigests 0}}'), keep the previous image tagged for rollback, and review changelogs before applying updates.
+**Issue:** Step 14 instructed `docker compose pull && docker compose up -d` with no guidance to verify image digests, compare against a known-good baseline, or perform any staging before deploying.  
+**Fix (implemented):** Replaced the bare pull-and-up block in step 14 Updates with a five-step procedure: (1) record current digests with `docker inspect` to a temp file, (2) pull, (3) `diff` before vs after to see exactly what changed, (4) update pinned digests in docker-compose.yml after reviewing changelogs for changed images, (5) deploy and smoke-test with rollback instructions (restore previous digest in docker-compose.yml + `up -d` — old layers remain in Docker's local cache until pruned).
 
-### H-28 — Backup Archives Written Unencrypted with No Access Controls or Retention Policy
+### ~~H-28~~ — ✅ FIXED — Backup Archives Written Unencrypted with No Access Controls or Retention Policy
 **Location:** 14-operations.md — Backups section  
 **Flagged by:** OPS-4  
-**Issue:** Backup commands write plaintext .tgz archives of Open WebUI user data and the LiteLLM database to /srv/backups with no documented directory permissions, no encryption, no offsite copy, and no retention limit.  
-**Impact:** Physical access or any process with filesystem read access exposes the entire user roster, password hashes, chat history, and API key database in plaintext; unbounded archive growth can also exhaust the model NVMe and crash containers.  
-**Fix:** Encrypt backups using restic or GPG before writing to disk, set chmod 700 /srv/backups owned by root, add a cron retention step removing archives older than 30 days, and document an offsite encrypted backup target.
+**Issue:** Backup commands wrote plaintext `.tgz` archives to `/srv/backups` with no directory permissions, no encryption, no retention limit.  
+**Fix (implemented):** Backups section fully rewritten. First-time setup creates `/srv/backups` owned root:root at mode 700 and generates a 256-bit backup passphrase at `/root/.backup-passphrase` (mode 600). Backup commands now pipe `docker run ... tar cz` through `gpg --symmetric --cipher-algo AES256 --passphrase-file` — archives are encrypted before touching disk. Retention: `find /srv/backups -name '*.tgz.gpg' -mtime +30 -delete`. Restore procedure documented. `.env` backup explicitly called out as a separate concern (password manager only, never co-located with archives) — closing M-43 and M-60 as side effects.
 
-### H-29 — Monitoring Is Manual Log Inspection Only — No Alerting or Anomaly Detection
+### ~~H-29~~ — ✅ FIXED — Monitoring Is Manual Log Inspection Only — No Alerting or Anomaly Detection
 **Location:** 14-operations.md — Monitoring section  
 **Flagged by:** OPS-5  
-**Issue:** The entire monitoring strategy is four manual docker logs commands and nvidia-smi, with no log aggregation, no persistent storage, and no automated alerting for credential abuse, container anomalies, or authentication failures.  
-**Impact:** Attackers with any foothold have extended undetected dwell time; low-volume credential stuffing, data exfiltration from workspace pods, and Authentik brute-force are all completely invisible without manual log inspection.  
-**Fix:** Deploy lightweight log aggregation (Loki + Grafana or equivalent) and configure alerts for LiteLLM 401 rate spikes, unexpected container starts, Authentik failed-auth spikes, and workspace pod egress volume anomalies; retain logs for at least 90 days.
+**Issue:** The entire monitoring strategy was four manual docker logs commands and nvidia-smi, with no log aggregation, no persistent storage, and no automated alerting for credential abuse, container anomalies, or authentication failures.  
+**Fix (implemented):** Full off-server monitoring stack in 14-operations.md §Monitoring. The Grafana host is a separate machine on the same LAN (`<grafana-host-lan-ip>`):
+1. **External monitoring host** — Grafana + Loki + Prometheus Docker Compose stack. Loki retains logs ≥ 90 days. Grafana admin password stored as a Docker secret (`/etc/monitoring/grafana_admin_password`).
+2. **Promtail on the LLM server** — dedicated Compose project (`/opt/promtail`) separate from the main stack, ships Docker container logs (phase 1) and MicroK8s pod logs (phase 2) to Loki via LAN push to `<grafana-host-lan-ip>:3100`.
+3. **Trivy Operator in MicroK8s** — installed via Helm in `trivy-system` namespace, continuously scans all cluster images and produces `VulnerabilityReport` CRDs. Metrics exposed as NodePort 32000 (`<llm-server-lan-ip>:32000`), scraped by external Prometheus. UFW rule restricts access to monitoring host only.
+4. **Host OS CronJob** — `trivy fs /host` nightly at 02:00 in `trivy-system` namespace. `hostPath: /` mounted read-only. `automountServiceAccountToken: false` — no cluster API access. Output → stdout → Promtail → Loki. (`hostPID: true` is not needed for `trivy fs`.)
+5. **Grafana alert rules** — LiteLLM 401 spike, Authentik failed-auth spike, Trivy CRITICAL CVE, Trivy HIGH CVE new, host OS CVE found, Promtail canary (pipeline health).
 
 ---
 ## MEDIUM
 
-### M-1 — DNS Egress Rule Allows Port 53 to All Namespaces, Not Just kube-dns
+### ~~M-1~~ — ✅ FIXED — DNS Egress Rule Allows Port 53 to All Namespaces, Not Just kube-dns
 **Location:** 16-workspaces.md §4a — workspace-isolation NetworkPolicy, kube-dns egress rule  
 **Flagged by:** NET-4, CONTAINER-12, ORCHESTRATOR-11  
 **Issue:** The DNS egress rule uses `namespaceSelector: {}` (matches all namespaces) with no podSelector, allowing workspace pods to reach any pod in any namespace on port 53 UDP/TCP, not only the kube-dns pods in kube-system.  
 **Impact:** Workspace pods can use port 53 TCP for DNS tunneling to any pod listening on that port in any namespace, enabling covert data exfiltration or lateral movement via a rogue DNS listener in another ws-* namespace.  
-**Fix:** Tighten the rule to `namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}` combined with `podSelector: {matchLabels: {k8s-app: kube-dns}}` so only actual kube-dns pods are reachable on port 53.
+**Fix (implemented):** All kube-dns egress rules throughout the policy set — workspace-isolation (§4a), inference-policy, litellm-policy, open-webui-policy (§4c), and all llm-platform policies (§4d) — now use `namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}` combined with `podSelector: {matchLabels: {k8s-app: kube-dns}}`. Port 53 is no longer reachable to arbitrary pods in arbitrary namespaces.
 
 ### M-2 — Workspace Egress ipBlock Exception List Misses Link-Local and RFC 6598 Ranges
 **Location:** 16-workspaces.md §4a — workspace-isolation NetworkPolicy, egress ipBlock except list  
@@ -265,12 +283,12 @@ Critical items C-1 through C-5 addressed in commit after this review.
 **Impact:** Workspace pods can reach link-local addresses (critical if the host is ever migrated to a cloud VM where 169.254.169.254 is the IMDS credential endpoint), ISP CGNAT infrastructure in 100.0.0.0/10, and potentially each other if the MicroK8s pod CIDR falls outside the excepted ranges.  
 **Fix:** Add 169.254.0.0/16, 127.0.0.0/8, and 100.0.0.0/10 to the except list, verify the MicroK8s pod and service CIDRs with `microk8s kubectl cluster-info dump | grep -E 'podCIDR|serviceClusterIP'`, and add those ranges explicitly regardless of RFC1918 overlap.
 
-### M-3 — Inference Pod Has No Egress NetworkPolicy — Full Outbound Access from GPU Process
-**Location:** 16-workspaces.md §4b — Inference ingress lock; assets/docker-compose.yml  
+### ~~M-3~~ — ✅ FIXED — Inference Pod Has No Egress NetworkPolicy — Full Outbound Access from GPU Process
+**Location:** 16-workspaces.md §4c — inference-policy  
 **Flagged by:** NET-8  
 **Issue:** Only an ingress NetworkPolicy is defined for the inference pod; no egress policy exists, giving the inference process (TabbyAPI / llama-swap) unrestricted outbound access to the LAN, internet, and all other pods.  
 **Impact:** A compromised inference process — via malicious model weights, a TabbyAPI/ExLlamaV2 vulnerability, or a supply-chain attack — can exfiltrate user prompts, API keys visible in the environment, or establish a reverse shell to an external C2.  
-**Fix:** Apply an egress NetworkPolicy to the inference pod restricting outbound to kube-dns port 53 only, and in the Docker phase add iptables rules preventing the inference container from reaching anything beyond its legitimate callers on llmnet.
+**Fix (implemented):** `inference-ingress` replaced with `inference-policy` (policyTypes: [Ingress, Egress]). Egress restricted to kube-dns:53 only — the inference process has no legitimate outbound connections beyond DNS resolution. Fixed as part of the H-2 default-deny + explicit-allow overhaul.
 
 ### M-4 — api.domain.com Has Cloudflare Access Bypass with Only IP-Based Rate Limiting
 **Location:** 08-connectivity-cloudflare.md §4; assets/cloudflare-access-notes.md §3–4  
@@ -321,12 +339,12 @@ Critical items C-1 through C-5 addressed in commit after this review.
 **Impact:** A recycled username gives a new user full access to the prior user's code, credentials, git history, and any secrets written to disk; a planted .bashrc hook defeats the rotate-key-on-relaunch security assumption by harvesting the fresh key at shell init time.  
 **Fix:** Bind workspace namespaces and PVCs to the Authentik immutable `sub` claim rather than `preferred_username`, and consider persisting only specific subdirectories (e.g. ~/projects) rather than the entire home directory to limit the blast radius of a compromised session.
 
-### M-11 — Removing User from grp-api in Authentik Does Not Revoke Their LiteLLM Virtual Key
+### ~~M-11~~ — ✅ ADDRESSED (Admin UI) — Removing User from grp-api in Authentik Does Not Revoke Their LiteLLM Virtual Key
 **Location:** 15-identity-sso.md; 06-gateway-litellm.md  
 **Flagged by:** AUTH-8  
 **Issue:** LiteLLM virtual keys are minted manually and are not session-bound; removing a user from grp-api in Authentik does not trigger any key revocation in LiteLLM, so the user retains valid API access indefinitely.  
 **Impact:** A departing friend whose Authentik account is removed can continue making API calls and consuming GPU budget until an admin manually calls `/key/delete`, contradicting the documented claim that group removal 'revokes access everywhere on next auth'.  
-**Fix:** Document that offboarding requires both Authentik group removal and explicit LiteLLM `/key/delete`, and implement a webhook or scheduled script that calls `/key/delete` when a user is removed from grp-api or deleted from Authentik.
+**Fix (addressed by design):** The Admin UI (step 17) makes user deprovision a single operation that atomically revokes the LiteLLM key, removes the Authentik group membership, and deletes the Open WebUI account. No separate manual step required. The deprovision flow is documented in 17-admin-ui.md.
 
 ### M-12 — Open WebUI OIDC SSO Is Optional — Authentik Removal Does Not Disable WebUI Account
 **Location:** 15-identity-sso.md §Setup outline step 5; 07-webui-open-webui.md; 08-connectivity-cloudflare.md §3  
@@ -369,7 +387,7 @@ Critical items C-1 through C-5 addressed in commit after this review.
 ---
 ## MEDIUM
 
-### M-17 — Tailscale SSH ACL Permits Direct Root Login from Any Admin Device
+### ~~M-17~~ — ✅ FIXED (see H-16) — Tailscale SSH ACL Permits Direct Root Login from Any Admin Device
 **Location:** assets/tailscale-acl.json  
 **Flagged by:** AUTH-15  
 **Issue:** The Tailscale SSH ACL allows autogroup:admin to SSH to the server as `root`, meaning a stolen or malware-infected admin device immediately yields a root shell on the LLM server without requiring any additional credential.  
@@ -386,7 +404,7 @@ Critical items C-1 through C-5 addressed in commit after this review.
 ---
 ## LOW
 
-### M-19 — SSH ListenAddress Restriction Is Documented as Optional with No Mandatory Verification Step
+### ~~M-19~~ — ✅ FIXED (see H-16) — SSH ListenAddress Restriction Is Documented as Optional with No Mandatory Verification Step
 **Location:** 09-connectivity-tailscale.md §4 — Lock SSH to Tailscale  
 **Flagged by:** NET-19  
 **Issue:** Step 09 §4 presents restricting sshd to the Tailscale interface as an alternative option ('or restrict via your VLAN/firewall') with no blocking verification before proceeding, leaving SSH potentially listening on 0.0.0.0.  
@@ -465,12 +483,11 @@ Critical items C-1 through C-5 addressed in commit after this review.
 **Impact:** A workspace user who achieves RCE within code-server can call syscalls not blocked by RuntimeDefault (notably ptrace on child processes, io_uring, keyctl) that are useful in kernel exploit chains.  
 **Fix:** Duplicate `seccompProfile: {type: RuntimeDefault}` into the container-level securityContext, and for stronger isolation author a custom Localhost seccomp profile that additionally denies ptrace, io_uring, userfaultfd, keyctl, bpf, and perf_event_open.
 
-### M-29 — Workspace Base Dockerfile Installs Unpinned pip Packages as Root
+### ~~M-29~~ — ✅ FIXED (partial) — Workspace Base Dockerfile Installs Unpinned pip Packages as Root
 **Location:** assets/workspace-base/Dockerfile lines 7–18; assets/workspace-base/Dockerfile line 3  
 **Flagged by:** CONTAINER-14, HOST-22, OPS-11, ORCHESTRATOR-10  
-**Issue:** The workspace Dockerfile installs `pip3 install --no-cache-dir aider-chat` (unpinned) as root before switching to the coder user, using a floating `codercom/code-server:latest` base image with no digest pin.  
-**Impact:** A compromised aider-chat release or malicious transitive PyPI dependency executes as root during image build and can persist a backdoor (SUID binary, modified entrypoint) that survives the USER coder switch and affects every workspace launched from that image.  
-**Fix:** Pin `codercom/code-server` to a specific SHA-256 digest, pin `aider-chat` to a specific version, generate a `requirements.txt` with `pip-compile --generate-hashes`, and use `pip install --require-hashes` to verify all transitive dependencies.
+**Issue:** The workspace Dockerfile installed `pip3 install --no-cache-dir aider-chat` (unpinned) as root, using a floating `codercom/code-server:latest` base image with no digest pin.  
+**Fix (implemented):** aider-chat install now requires an explicit version pin (`aider-chat==VERSION` with comment pointing to PyPI). Base image pinning follows the H-8 procedure (same `docker inspect` + FROM-line update at first build). Accepted residual: transitive PyPI dependency hashing (`pip-compile --generate-hashes` + `--require-hashes`) is not implemented — full hash pinning of a deep dependency tree is a significant maintenance burden for a workspace image that is rebuilt infrequently; operator is expected to review aider-chat release notes when bumping the version.
 
 ### M-30 — All Container Images Use Mutable Tags — Silent Supply-Chain Substitution on Next Pull
 **Location:** assets/docker-compose.yml (litellm: main-stable, open-webui: main, cloudflared: latest)  
@@ -604,7 +621,7 @@ Critical items C-1 through C-5 addressed in commit after this review.
 **Flagged by:** SECRETS-9, OPS-10  
 **Issue:** Step 14 documents rotating per-friend virtual keys but is silent on rotating CF_TUNNEL_TOKEN, LITELLM_MASTER_KEY, or LITELLM_SALT_KEY; there is no recovery path documented if the tunnel token is leaked, and no rotation schedule for the master key that grants full API gateway admin.  
 **Impact:** A leaked CF_TUNNEL_TOKEN or LITELLM_MASTER_KEY has an indefinite validity window because operators have no documented procedure to identify the exposure, rotate, and re-secure the stack.  
-**Fix:** Add rotation procedures for all three keys to step 14 (LITELLM_SALT_KEY rotation requires coordinated key reissuance to all users), schedule quarterly rotation for the master key, and document CF_TUNNEL_TOKEN rotation via the Cloudflare dashboard.
+**Fix:** Add rotation procedures for all three keys to step 14 (LITELLM_SALT_KEY rotation requires coordinated key reissuance to all users), schedule quarterly rotation for the master key, and document CF_TUNNEL_TOKEN rotation via the Cloudflare dashboard. Friend virtual key revocation/reissuance is handled through the Admin UI (step 17) as a routine operation.
 
 ### M-47 — LiteLLM Verbose Logging May Write API Keys to Docker Log Files Readable by docker Group
 **Location:** 14-operations.md Monitoring; assets/litellm-config.yaml line 23  
@@ -614,7 +631,7 @@ Critical items C-1 through C-5 addressed in commit after this review.
 **Fix:** Explicitly set `set_verbose: false` in litellm-config.yaml, add `LITELLM_LOG=ERROR` to the environment, and configure Docker log rotation (`max-size: 10m, max-file: 3`) for the litellm service.
 
 ### M-48 — NVIDIA Container Toolkit Installed Without Version Pinning or GPG Fingerprint Verification
-**Location:** 02-host-os-ubuntu.md §5  
+**Location:** 02-host-os-ubuntu.md §7  
 **Flagged by:** OPS-7  
 **Issue:** The toolkit is installed with `apt install -y nvidia-container-toolkit` without pinning a version and without verifying the repository GPG key fingerprint; the toolkit has had container-escape CVEs (CVE-2024-0132, CVE-2024-0133) and runs as a privileged Docker daemon component.  
 **Impact:** An unpatched toolkit CVE is a direct path from the GPU inference container to the host OS; without version pinning there is no visibility into which CVEs are outstanding between `apt upgrade` runs.  
@@ -688,12 +705,12 @@ Critical items C-1 through C-5 addressed in commit after this review.
 **Impact:** A stolen CF Access JWT from one workspace could grant access to another workspace subdomain belonging to the same or a different user, valid for up to the configured 24-hour session duration.  
 **Fix:** Verify Cloudflare Access's cookie scoping behavior for wildcard applications, shorten workspace application session duration to 1–2 hours, and make per-session code-server `--auth password` mandatory (M-13) so that a stolen CF cookie still cannot reach the IDE without the per-session password.
 
-### M-57 — Docker Group Membership Grants Effective Root Without Acknowledgment in the Guide
-**Location:** 02-host-os-ubuntu.md §4; 04-deploy-stack-ubuntu.md §6  
+### ~~M-57~~ — ✅ FIXED (see H-20) — Docker Group Membership Grants Effective Root Without Acknowledgment in the Guide
+**Location:** 02-host-os-ubuntu.md §6; 04-deploy-stack-ubuntu.md §6  
 **Flagged by:** OPS-12  
 **Issue:** Step 02 adds the operator's account to the `docker` group for convenience, but docker group membership is equivalent to passwordless root (any member can mount the host filesystem via a container) and this is not acknowledged anywhere in the guide.  
 **Impact:** Any compromise of the operator's interactive shell session — SSH session hijack, malicious script, CI pipeline — immediately yields host root access via the Docker socket without any additional exploitation step.  
-**Fix:** Document explicitly that docker group membership equals effective root, consider running the systemd unit as root rather than a user account that also has interactive SSH access, and evaluate rootless Docker for the inference workload.
+**Fix (implemented):** Closed by H-20. Admin account never added to docker group; dedicated `llm-svc` service account is the sole docker group member; docker group = effective root risk documented in step 02 §6.
 
 ---
 ## INFO
@@ -708,12 +725,12 @@ Critical items C-1 through C-5 addressed in commit after this review.
 ---
 ## LOW
 
-### M-59 — Orchestrator Has No Audit Logging for Workspace Lifecycle and Key Minting Events
+### ~~M-59~~ — ✅ ADDRESSED (Admin UI) — Orchestrator Has No Audit Logging for Workspace Lifecycle and Key Minting Events
 **Location:** 14-operations.md; 16-workspaces.md  
 **Flagged by:** ORCHESTRATOR-17  
 **Issue:** The operations guide describes monitoring for inference and LiteLLM logs but documents no structured audit logging for orchestrator actions (workspace launches, key mints, namespace creation/deletion, failed attempts) or Kubernetes API server audit logs for the orchestrator SA.  
 **Impact:** Abuse — excessive workspace launches, namespace collision attempts, reconnaissance via failed API calls — and orchestrator compromise are undetectable and unscoped post-incident without a log trail.  
-**Fix:** Enable Kubernetes API server audit logging at Metadata level for all orchestrator SA requests and Request level for secrets/namespace operations; implement structured application logging in the orchestrator for every lifecycle event and forward to an immutable host-level log sink.
+**Fix (addressed by design):** The Admin UI (step 17) is the single choke point for all administrative operations — user provisioning, key management, workspace force-stop, deprovision. Every action is logged with timestamp, operator identity (OIDC sub), operation type, and outcome, forwarded to the external Loki instance. The orchestrator logs its own workspace lifecycle events (launch, destroy, key mint/revoke) as structured output; the Admin UI audit log covers the human-initiated layer above that.
 
 ### M-60 — .env File Not Included in Backup — LITELLM_SALT_KEY Loss Makes Database Restores Useless
 **Location:** 14-operations.md §Backups  
