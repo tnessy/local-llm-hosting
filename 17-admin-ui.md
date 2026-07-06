@@ -102,8 +102,9 @@ admin function even if CF Access is misconfigured.
 ### MicroK8s
 
 The orchestrator service is ClusterIP only. These two policies work alongside
-the default-deny baseline in llm-platform (16-workspaces.md §4b) — without
-default-deny, ingress and egress not covered here would remain unrestricted.
+the default-deny baseline in llm-platform ([step 04 §8](04-deploy-stack-ubuntu.md))
+— without default-deny, ingress and egress not covered here would remain
+unrestricted.
 
 ```yaml
 # assets/k8s/llm-platform/orchestrator-policy.yaml
@@ -238,13 +239,6 @@ spec:
       port: 53
 ```
 
-### Docker Compose (pre-MicroK8s phase)
-
-The admin-ui service is on the `frontend` network (reaches litellm and
-open-webui) with no additional network needed for orchestrator (not deployed
-in the Compose phase). The orchestrator's internal API is only relevant in the
-MicroK8s deployment.
-
 ---
 
 ## Credentials the Admin UI holds
@@ -292,51 +286,86 @@ copy is used only for workspace-scoped key mint/revoke during launch and destroy
 ### Audit log
 Every action records: timestamp, authenticated admin (from OIDC sub), operation
 type, target (user sub or key alias), and outcome. Logs are written to a
-persistent volume and forwarded to the external Loki instance (step 29 monitoring).
-
----
-
-## Docker Compose service (placeholder)
-
-Add to `assets/docker-compose.yml` once the Admin UI is implemented. The image
-reference and environment variables below are illustrative:
-
-```yaml
-  admin-ui:
-    image: your-registry/admin-ui:latest
-    container_name: admin-ui
-    restart: unless-stopped
-    depends_on: [litellm, open-webui]
-    networks: [frontend]
-    expose:
-      - "8080"
-    environment:
-      - LITELLM_URL=http://litellm:4000
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
-      - AUTHENTIK_URL=http://authentik:9000
-      - AUTHENTIK_TOKEN=${AUTHENTIK_ADMIN_TOKEN}
-      - OPENWEBUI_URL=http://open-webui:8080
-      - OPENWEBUI_ADMIN_KEY=${OPENWEBUI_ADMIN_KEY}
-      - OIDC_ISSUER=https://auth.domain.com/application/o/admin-ui/
-      - OIDC_CLIENT_ID=${ADMIN_UI_OIDC_CLIENT_ID}
-      - OIDC_CLIENT_SECRET=${ADMIN_UI_OIDC_CLIENT_SECRET}
-      - REQUIRED_GROUP=grp-admin
-      - SESSION_DURATION_HOURS=4
-    secrets:
-      - litellm_master_key
-      - authentik_admin_token
-      - openwebui_admin_key
-      - admin_ui_oidc_secret
-```
+persistent volume and forwarded to the external Loki instance ([step 14](14-operations.md) monitoring).
 
 ---
 
 ## MicroK8s deployment
 
-The Admin UI runs as a Deployment in `llm-platform` with a ClusterIP Service.
-An HTTPRoute on `core-gateway` routes `admin.domain.com` to it:
+The Admin UI runs as a Deployment in `llm-platform` with a ClusterIP Service, an
+HTTPRoute on `core-gateway` for `admin.domain.com`, and the `orchestrator-policy`
+NetworkPolicy above. Non-OIDC config is plain env; every credential comes from a
+Secret via `secretKeyRef` — never a literal `value:`. The image reference and
+values below are illustrative (build your Admin UI image and push it to the
+MicroK8s registry, as with inference — step 04 §5):
 
 ```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-ui
+  namespace: llm-platform
+  labels:
+    app: admin-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admin-ui
+  template:
+    metadata:
+      labels:
+        app: admin-ui
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: admin-ui
+        image: localhost:32000/admin-ui:latest   # pin to digest — step 04 §6
+        ports:
+        - containerPort: 8080
+        env:
+        - name: LITELLM_URL
+          value: http://litellm.llm-core:4000
+        - name: AUTHENTIK_URL
+          value: http://authentik-server.llm-platform:9000
+        - name: OPENWEBUI_URL
+          value: http://open-webui.llm-core:8080
+        - name: OIDC_ISSUER
+          value: https://auth.domain.com/application/o/admin-ui/
+        - name: REQUIRED_GROUP
+          value: grp-admin
+        - name: SESSION_DURATION_HOURS
+          value: "4"
+        - name: LITELLM_MASTER_KEY
+          valueFrom: { secretKeyRef: { name: litellm-credentials, key: master-key } }
+        - name: AUTHENTIK_TOKEN
+          valueFrom: { secretKeyRef: { name: admin-ui-credentials, key: authentik-token } }
+        - name: OPENWEBUI_ADMIN_KEY
+          valueFrom: { secretKeyRef: { name: admin-ui-credentials, key: openwebui-admin-key } }
+        - name: OIDC_CLIENT_ID
+          valueFrom: { secretKeyRef: { name: admin-ui-credentials, key: oidc-client-id } }
+        - name: OIDC_CLIENT_SECRET
+          valueFrom: { secretKeyRef: { name: admin-ui-credentials, key: oidc-client-secret } }
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-ui
+  namespace: llm-platform
+spec:
+  selector:
+    app: admin-ui
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -362,8 +391,8 @@ spec:
 - The Admin UI is the highest-privilege service in the stack after the host OS
   itself — it holds the LiteLLM master key and Authentik admin credentials.
   Keep it patched, monitored, and audited.
-- All secrets are mounted via k8s Secrets or Docker secrets — never environment
-  variables exposed through docker inspect (H-12 pattern).
+- All secrets are mounted via k8s Secrets (`secretKeyRef`) — never plaintext env
+  literals readable from the pod spec by anything with `pods:get` (H-12 pattern).
 - If the Admin UI is unavailable (cloudflared down, pod crash), fall back to
   Tailscale + direct curl to LiteLLM and Authentik admin APIs. Document the
   curl equivalents for each operation in the operations runbook (step 14).

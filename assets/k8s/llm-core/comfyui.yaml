@@ -1,0 +1,97 @@
+# OPTIONAL (step 11): ComfyUI / Stable Diffusion. Shares the single GPU with the
+# inference engine — mind VRAM contention (see step 11). Apply only if you want it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: comfyui-data
+  namespace: llm-core
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: microk8s-hostpath
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: comfyui
+  namespace: llm-core
+  labels:
+    app: comfyui
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate                # single GPU — don't run two GPU pods at once
+  selector:
+    matchLabels:
+      app: comfyui
+  template:
+    metadata:
+      labels:
+        app: comfyui
+    spec:
+      containers:
+      - name: comfyui
+        image: yanwk/comfyui-boot:cu124   # pin to digest — step 04 §6
+        ports:
+        - containerPort: 8188
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: data
+          mountPath: /root
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: comfyui-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: comfyui
+  namespace: llm-core
+spec:
+  selector:
+    app: comfyui
+  ports:
+  - port: 8188
+    targetPort: 8188
+---
+# Ingress from open-webui (chat image-gen) + traefik (optional sd.domain.com route);
+# egress dns only. Layers on the llm-core default-deny (step 04).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: comfyui-policy
+  namespace: llm-core
+spec:
+  podSelector:
+    matchLabels:
+      app: comfyui
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: open-webui
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: llm-platform
+    ports:
+    - port: 8188
+      protocol: TCP
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP

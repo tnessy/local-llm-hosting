@@ -48,24 +48,40 @@ no encrypted backup can be restored.
 Archives are GPG-encrypted before hitting disk. Run on a schedule or before
 any major maintenance:
 
+Tar each PVC from inside its running pod and pipe straight into GPG:
+
 ```bash
 BACKUP_DATE=$(date +%F)
 
-sudo docker run --rm -v home-llm_openwebui-data:/d alpine tar cz -C /d . \
+# Open WebUI data (accounts, per-user keys, chats)
+microk8s kubectl exec -n llm-core deploy/open-webui -- tar cz -C /app/backend/data . \
   | sudo gpg --batch --symmetric --cipher-algo AES256 \
         --passphrase-file /root/.backup-passphrase \
         --output /srv/backups/openwebui-${BACKUP_DATE}.tgz.gpg
 
-sudo docker run --rm -v home-llm_litellm-db:/d alpine tar cz -C /d . \
+# LiteLLM DB (virtual keys, budgets, spend)
+microk8s kubectl exec -n llm-core deploy/litellm -- tar cz -C /app/db . \
   | sudo gpg --batch --symmetric --cipher-algo AES256 \
         --passphrase-file /root/.backup-passphrase \
         --output /srv/backups/litellm-${BACKUP_DATE}.tgz.gpg
 ```
 
-> **`.env` backup:** `/opt/home-llm/.env` contains `LITELLM_SALT_KEY`, which is
-> required to restore `litellm.db`. Back it up to your **password manager** — not
-> to `/srv/backups`. Keeping the decryption key and the encrypted archives on the
-> same disk halves the protection if that disk is stolen or read.
+> Run backups during low activity — the SQLite DB is copied live. For a
+> point-in-time-consistent copy, scale LiteLLM to zero first
+> (`microk8s kubectl scale deploy/litellm -n llm-core --replicas=0`), back up via
+> a temporary pod mounting the `litellm-db` PVC, then scale back to 1.
+
+> **`LITELLM_SALT_KEY` backup:** the salt key lives in the `litellm-credentials`
+> Kubernetes Secret (encrypted at rest — [step 04 §2](04-deploy-stack-ubuntu.md)),
+> **not** in any file and **not** in the volume backups above. It is required to
+> restore `litellm.db` — without it the whole key table is unverifiable. Extract it
+> and store it in your **password manager**:
+> ```bash
+> microk8s kubectl get secret litellm-credentials -n llm-core \
+>   -o jsonpath='{.data.salt-key}' | base64 -d; echo
+> ```
+> Keep it off `/srv/backups` — storing the key beside the encrypted archives halves
+> the protection if that disk is stolen.
 
 ### Retention
 
@@ -77,11 +93,14 @@ sudo find /srv/backups -name '*.tgz.gpg' -mtime +30 -delete
 ### Restore
 
 ```bash
+# Restore the DB into the running pod, then restart litellm to reload it cleanly
 sudo gpg --batch --decrypt \
   --passphrase-file /root/.backup-passphrase \
   --output - \
-  /srv/backups/litellm-2025-01-15.tgz.gpg \
-  | sudo docker run --rm -i -v home-llm_litellm-db:/d alpine tar xz -C /d
+  /srv/backups/litellm-2026-01-15.tgz.gpg \
+  | microk8s kubectl exec -n llm-core -i deploy/litellm -- tar xz -C /app/db
+
+microk8s kubectl rollout restart deploy/litellm -n llm-core
 ```
 
 ## Updates
@@ -101,29 +120,27 @@ sudo gpg --batch --decrypt \
   ```bash
   sudo apt upgrade nvidia-* libnvidia-*
   sudo reboot
-  sudo docker exec -it inference nvidia-smi   # must show GPU inside the container
+  microk8s kubectl exec -n llm-core deploy/inference -- nvidia-smi   # must show the GPU
   ```
 - **Containers:** update deliberately — record what changed, review changelogs,
-  then pin new digests before deploying:
+  then re-pin digests in the manifests before deploying:
 
   ```bash
-  # 1. Record current pinned digests
-  sudo docker inspect \
-    --format='{{index .RepoDigests 0}}' \
-    ghcr.io/berriai/litellm:main-stable \
-    ghcr.io/open-webui/open-webui:main \
-    cloudflare/cloudflared:latest \
+  cd /opt/home-llm
+
+  # 1. Record current digests pulled into the cluster
+  microk8s ctr images ls | grep -E 'litellm|open-webui|cloudflared' \
     | tee /tmp/digests-before.txt
 
-  # 2. Pull new versions
-  sudo docker compose -f /opt/home-llm/docker-compose.yml pull
+  # 2. Pull the moving tags fresh
+  for img in ghcr.io/berriai/litellm:main-stable \
+             ghcr.io/open-webui/open-webui:main \
+             cloudflare/cloudflared:latest ; do
+    microk8s ctr images pull "$img"
+  done
 
   # 3. See what actually changed
-  sudo docker inspect \
-    --format='{{index .RepoDigests 0}}' \
-    ghcr.io/berriai/litellm:main-stable \
-    ghcr.io/open-webui/open-webui:main \
-    cloudflare/cloudflared:latest \
+  microk8s ctr images ls | grep -E 'litellm|open-webui|cloudflared' \
     | diff /tmp/digests-before.txt -
   ```
 
@@ -132,28 +149,27 @@ sudo gpg --batch --decrypt \
   breaking changes to virtual-key handling.
 
   ```bash
-  # 4. Update docker-compose.yml with the new pinned digests
-  sudo nano /opt/home-llm/docker-compose.yml
+  # 4. Update the @sha256 digests in the manifests (step 04 §6)
+  sudo nano assets/k8s/llm-core/litellm.yaml       # and open-webui.yaml, cloudflared.yaml
 
-  # 5. Deploy and smoke-test
-  sudo docker compose -f /opt/home-llm/docker-compose.yml up -d
-  # If broken: restore the previous digests in docker-compose.yml and
-  # run up -d again — Docker still has the old layers locally until
-  # you run docker system prune.
+  # 5. Apply and roll out
+  microk8s kubectl apply -f assets/k8s/llm-core/ -f assets/k8s/llm-platform/
+  # If broken: revert the digest in the manifest and re-apply — Kubernetes rolls
+  # the Deployment back to healthy pods.
   ```
 
-  For inference engine updates (TabbyAPI base or llama-swap version bump):
+  For inference engine updates (TabbyAPI base or llama-swap version bump), rebuild
+  the image and push it to the registry, then re-pin:
   ```bash
-  # Pull and record the new TabbyAPI base digest
-  sudo docker pull ghcr.io/theroyallab/tabbyapi:latest
-  sudo docker inspect --format='{{index .RepoDigests 0}}' \
-    ghcr.io/theroyallab/tabbyapi:latest
-
-  # If bumping LLAMA_SWAP_VERSION, recompute its SHA-256 (see step 04 §4)
-  # Update FROM digest and LLAMA_SWAP_SHA256 in inference/Dockerfile, then rebuild
-  sudo nano /opt/home-llm/inference/Dockerfile
-  sudo docker compose -f /opt/home-llm/docker-compose.yml build inference
-  sudo docker compose -f /opt/home-llm/docker-compose.yml up -d inference
+  cd /opt/home-llm/assets/inference
+  # If bumping LLAMA_SWAP_VERSION, recompute its SHA-256 (see step 04 §5).
+  # Update the FROM digest + LLAMA_SWAP_SHA256 in the Dockerfile, then:
+  docker build --build-arg LLAMA_SWAP_SHA256=<hash> -t localhost:32000/home-llm-inference:latest .
+  docker push localhost:32000/home-llm-inference:latest
+  docker inspect --format='{{index .RepoDigests 0}}' localhost:32000/home-llm-inference:latest
+  # Set the new @sha256 in assets/k8s/llm-core/inference.yaml, then:
+  microk8s kubectl apply -f /opt/home-llm/assets/k8s/llm-core/inference.yaml
+  microk8s kubectl rollout restart deploy/inference -n llm-core
   ```
 
   Always test Aider + Claude Code after inference or LiteLLM version changes.
@@ -169,12 +185,18 @@ sudo gpg --batch --decrypt \
   with no warning. If rotation ever becomes necessary (e.g. suspected salt leak):
   1. Notify all users of a maintenance window.
   2. List every active key via LiteLLM `/key/list` and record the aliases.
-  3. Update `LITELLM_SALT_KEY` in `.env` and restart the `litellm` container.
+  3. Patch `salt-key` in the `litellm-credentials` Secret and restart LiteLLM:
+     ```bash
+     microk8s kubectl patch secret litellm-credentials -n llm-core --type merge \
+       -p "{\"stringData\":{\"salt-key\":\"$(openssl rand -hex 32)\"}}"
+     microk8s kubectl rollout restart deploy/litellm -n llm-core
+     ```
   4. Re-mint a replacement key for every friend and send them the new values.
 
-  For routine hygiene, rotate `LITELLM_MASTER_KEY` instead — that affects admin
-  access only and does not touch friend virtual keys.
-- Keep `LITELLM_MASTER_KEY` and `.env` secret; never commit `.env`.
+  For routine hygiene, rotate `master-key` instead — that affects admin access
+  only and does not touch friend virtual keys.
+- Keep the `litellm-credentials` Secret values in your password manager; they are
+  encrypted at rest in the cluster and never written to disk in plaintext.
 - Tailscale: review devices; the server node has key-expiry disabled, your
   personal devices should keep expiry on.
 
@@ -340,12 +362,10 @@ services:
     image: grafana/promtail:2.9.0   # pin to digest
     container_name: promtail
     restart: unless-stopped
-    # Runs as root to read /var/lib/docker/containers (root-owned); all mounts read-only.
+    # Runs as root to read /var/log/pods (root-owned); all mounts read-only.
     user: "0:0"
     volumes:
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /var/log/pods:/var/log/pods:ro   # MicroK8s pod logs (phase 2)
+      - /var/log/pods:/var/log/pods:ro   # MicroK8s pod logs (all cluster workloads)
       - promtail-pos:/tmp
       - ./promtail-config.yaml:/etc/promtail/config.yaml:ro
     command: -config.file=/etc/promtail/config.yaml
@@ -368,19 +388,9 @@ clients:
   - url: http://<grafana-host-lan-ip>:3100/loki/api/v1/push
 
 scrape_configs:
-  # Phase 1 — Docker Compose container logs
-  - job_name: docker
-    docker_sd_configs:
-      - host: unix:///var/run/docker.sock
-        refresh_interval: 5s
-    relabel_configs:
-      - source_labels: [__meta_docker_container_name]
-        regex: '/(.*)'
-        target_label: container
-      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
-        target_label: service
-
-  # Phase 2 — MicroK8s pod logs
+  # MicroK8s pod logs — all cluster workloads (litellm, open-webui, inference,
+  # cloudflared, traefik, authentik, workspaces). The `container` label set below
+  # is what the alert rules key on (e.g. {container="litellm"}).
   - job_name: kubernetes
     static_configs:
       - targets: [localhost]
@@ -543,9 +553,9 @@ increase(trivy_image_vulnerabilities{severity="HIGH"}[1h]) > 0
 count_over_time({namespace="trivy-system", container="trivy"} |= "CRITICAL" [25h]) > 0
 ```
 
-*Promtail canary* — no Docker logs arriving from the LLM server for 15 minutes (Loki); fires on monitoring pipeline failure or server downtime:
+*Promtail canary* — no pod logs arriving from the LLM server for 15 minutes (Loki); fires on monitoring pipeline failure or server downtime:
 ```
-sum(rate({job="docker"}[10m])) == 0
+sum(rate({job="kubernetes"}[10m])) == 0
 ```
 
 Set up a contact point (Alerting → Contact points) to deliver alerts by email or another channel of your choice.
@@ -571,7 +581,7 @@ curl -s 'http://localhost:9090/api/v1/query?query=trivy_image_vulnerabilities' \
 ```
 
 **Quick on-server checks (not a substitute for the above):**
-- `sudo docker logs -f litellm` — real-time auth failures and spend
+- `microk8s kubectl logs -f -n llm-core deploy/litellm` — real-time auth failures and spend
 - LiteLLM `/key/info?key=...` — per-friend spend/usage
 - Cloudflare Zero Trust logs — who authenticated, what was blocked at the edge
 - `nvidia-smi -l 2` — live VRAM/utilization while tuning context/models

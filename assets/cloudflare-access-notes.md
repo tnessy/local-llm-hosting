@@ -1,7 +1,8 @@
 # Cloudflare Tunnel + Access — settings reference
 
 Companion to [step 08](../08-connectivity-cloudflare.md). All configured in the
-Cloudflare dashboard (no files on the server beyond the tunnel token in `.env`).
+Cloudflare dashboard (no files on the server beyond the tunnel token, held in the
+`cloudflared-credentials` Kubernetes Secret).
 
 ## 1. Tunnel public hostnames
 

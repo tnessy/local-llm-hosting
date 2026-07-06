@@ -1,0 +1,96 @@
+# OPTIONAL (step 11): Tabby self-hosted code autocomplete (FIM). Shares the single
+# GPU with the inference engine — mind VRAM contention. Apply only if you want it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tabby-data
+  namespace: llm-core
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: microk8s-hostpath
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tabby
+  namespace: llm-core
+  labels:
+    app: tabby
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: tabby
+  template:
+    metadata:
+      labels:
+        app: tabby
+    spec:
+      containers:
+      - name: tabby
+        image: tabbyml/tabby:latest      # pin to digest — step 04 §6
+        args: ["serve", "--device", "cuda"]
+        ports:
+        - containerPort: 8080
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: tabby-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tabby
+  namespace: llm-core
+spec:
+  selector:
+    app: tabby
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+# Ingress from traefik only (optional tunnel/Tailscale route); egress dns only.
+# Direct IDE access over Tailscale uses `kubectl port-forward`, which bypasses
+# NetworkPolicy. Layers on the llm-core default-deny (step 04).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tabby-policy
+  namespace: llm-core
+spec:
+  podSelector:
+    matchLabels:
+      app: tabby
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: llm-platform
+    ports:
+    - port: 8080
+      protocol: TCP
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP

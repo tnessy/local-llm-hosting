@@ -1,0 +1,136 @@
+# Explicit allow policies for llm-core. Layer on top of default-deny.yaml.
+# Clauses that select workspace pods (workspace=true) match nothing until the
+# orchestrator creates ws-* namespaces (step 16) — harmless before then.
+
+# inference: ingress from litellm only; egress to kube-dns only (H-4, M-3).
+# This is the structural block that stops any workspace pod from reaching the
+# GPU engine — enforced at the destination, not only at the source.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: inference-policy
+  namespace: llm-core
+spec:
+  podSelector:
+    matchLabels:
+      app: inference
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: litellm
+    ports:
+    - port: 8080
+      protocol: TCP
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+---
+# litellm: ingress from authorised callers; egress to inference + dns (H-4).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: litellm-policy
+  namespace: llm-core
+spec:
+  podSelector:
+    matchLabels:
+      app: litellm
+  policyTypes: [Ingress, Egress]
+  ingress:
+  # traefik/cloudflared path (api.domain.com) + admin-ui + orchestrator
+  # (key mint/revoke) — all in llm-platform
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: llm-platform
+    ports:
+    - port: 4000
+      protocol: TCP
+  # open-webui chat path — same namespace
+  - from:
+    - podSelector:
+        matchLabels:
+          app: open-webui
+    ports:
+    - port: 4000
+      protocol: TCP
+  # workspace pods — namespaces labeled workspace=true by orchestrator (step 16)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          workspace: "true"
+    ports:
+    - port: 4000
+      protocol: TCP
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: inference
+    ports:
+    - port: 8080
+      protocol: TCP
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+---
+# open-webui: ingress from traefik (llm-platform); egress to litellm + dns.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: open-webui-policy
+  namespace: llm-core
+spec:
+  podSelector:
+    matchLabels:
+      app: open-webui
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: llm-platform
+    ports:
+    - port: 8080
+      protocol: TCP
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: litellm
+    ports:
+    - port: 4000
+      protocol: TCP
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP

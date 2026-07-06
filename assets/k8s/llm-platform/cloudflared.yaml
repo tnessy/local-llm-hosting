@@ -1,0 +1,46 @@
+# Public ingress: outbound-only Cloudflare Tunnel. No inbound router ports.
+# The token comes from the cloudflared-credentials Secret (step 04 §3) — never a
+# plaintext env literal. Runs as an unprivileged, read-only, capability-dropped
+# pod: even a full compromise yields no host or cluster foothold.
+#
+# All tunnel routes point at Traefik, which routes by Host header via the
+# Gateway API (core-gateway.yaml + core-httproutes.yaml):
+#   llm.domain.com / api.domain.com  -> http://traefik.llm-platform:80
+# Step 16 adds the workspace-gateway (*.ws.domain.com) on the same Traefik.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: llm-platform
+  labels:
+    app: cloudflared
+spec:
+  replicas: 2                         # HA: rolling tunnel updates without dropping ingress
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: cloudflared
+        image: cloudflare/cloudflared:latest   # pin to digest — step 04 §6
+        args: ["tunnel", "--no-autoupdate", "run"]
+        env:
+        - name: TUNNEL_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: cloudflared-credentials
+              key: token
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]

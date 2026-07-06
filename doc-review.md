@@ -3,13 +3,17 @@
 **10 findings** — Ordering conflicts: 3  Factual errors: 4  Usability/clarity: 3
 
 Identified by a full sequential pass through steps 01–17 and `assets/` on 2026-07-01.
-No fixes applied yet — use this file to track status as each is addressed.
+
+**Status: all 10 resolved (2026-07-06).** ORD-1 and UX-1 fixed directly; the rest
+were fixed or structurally dissolved by the k8s-native rewrite (the guide moved
+from a Docker Compose core + late MicroK8s migration to MicroK8s-from-step-04,
+retiring `assets/docker-compose.yml` and the token-migration/ordering traps).
 
 ---
 
 ## ORDERING CONFLICTS (step cannot be completed as written at that point in the guide)
 
-### ORD-1 — OPEN — Step 08 §2: `auth.domain.com` and `admin.domain.com` Tunnel Routes Are Premature
+### ORD-1 — ✅ FIXED — Step 08 §2: `auth.domain.com` and `admin.domain.com` Tunnel Routes Are Premature
 
 **Location:** `08-connectivity-cloudflare.md` §2 (hostname routing table)
 
@@ -27,7 +31,13 @@ A reader following the guide sequentially would configure tunnel routes to servi
 
 ---
 
-### ORD-2 — OPEN — Step 08 §6: CF Tunnel Token → k8s Secret Requires MicroK8s (Not Installed Until Step 16)
+### ORD-2 — ✅ DISSOLVED (k8s-native rewrite) — Step 08 §6: CF Tunnel Token → k8s Secret Requires MicroK8s (Not Installed Until Step 16)
+
+**Resolution:** MicroK8s now bootstraps in step 04. The tunnel token is created as
+the `cloudflared-credentials` Secret in step 04 §3 (encrypted at rest, step 04 §2),
+so there is no Docker→k8s migration. Step 08 §6 was replaced with token-hygiene
+guidance (connector notifications + count check). No ordering trap remains.
+
 
 **Location:** `08-connectivity-cloudflare.md` §6
 
@@ -40,7 +50,12 @@ A reader following the guide sequentially would configure tunnel routes to servi
 
 ---
 
-### ORD-3 — OPEN — Step 14 §3: Trivy Operator Requires MicroK8s (Not Installed Until Step 16)
+### ORD-3 — ✅ DISSOLVED (k8s-native rewrite) — Step 14 §3: Trivy Operator Requires MicroK8s (Not Installed Until Step 16)
+
+**Resolution:** MicroK8s + `helm3` are now installed in step 04, which precedes
+step 14. Trivy Operator in step 14 §3 runs against the existing cluster with no
+ordering trap. No callout needed.
+
 
 **Location:** `14-operations.md` §3 (Trivy Operator)
 
@@ -55,7 +70,13 @@ A reader following the guide sequentially would configure tunnel routes to servi
 
 ## FACTUAL ERRORS (wrong information that would cause a command or restore to fail)
 
-### FACT-1 — OPEN — Step 14 Backup Note: Wrong Location for `LITELLM_SALT_KEY`
+### FACT-1 — ✅ FIXED (k8s-native rewrite) — Step 14 Backup Note: Wrong Location for `LITELLM_SALT_KEY`
+
+**Resolution:** The salt key is now in the `litellm-credentials` k8s Secret
+(encrypted at rest). Step 14's backup note points there with a `kubectl get secret
+… salt-key | base64 -d` extraction command, and the rotation procedure patches the
+Secret instead of editing `.env`.
+
 
 **Location:** `14-operations.md` §Backups → `.env` backup note
 
@@ -71,7 +92,13 @@ Step 04 §2 explicitly stores `LITELLM_SALT_KEY` as a Docker secret file in `/et
 
 ---
 
-### FACT-2 — OPEN — Step 10 §3: Edit Command Points to Repo Source, Not Deployed File
+### FACT-2 — ✅ FIXED (k8s-native rewrite) — Step 10 §3: Edit Command Points to Repo Source, Not Deployed File
+
+**Resolution:** llama-swap config is now the `llama-swap-config` ConfigMap. Step 10
+§3 tells the reader to edit the asset file *and* push it to the ConfigMap
+(`kubectl create configmap … --dry-run -o yaml | kubectl apply -f -`) then
+`rollout restart deploy/inference`, so the edit actually reaches the running pod.
+
 
 **Location:** `10-models.md` §3
 
@@ -86,7 +113,12 @@ Step 04 §1 copies the entire `assets/` directory to `/opt/home-llm/` with `cp -
 
 ---
 
-### FACT-3 — OPEN — `docker-compose.yml` Build Context Broken After Deployment
+### FACT-3 — ✅ DISSOLVED (k8s-native rewrite) — `docker-compose.yml` Build Context Broken After Deployment
+
+**Resolution:** `assets/docker-compose.yml` is retired (deleted). The inference
+image is built with `docker build` from `assets/inference/` and pushed to the
+MicroK8s registry (step 04 §5); there is no compose build context to break.
+
 
 **Location:** `assets/docker-compose.yml` line 13
 
@@ -111,7 +143,12 @@ Step 04 §3 shows `./llama-swap-config.yaml` (correctly, without `assets/` prefi
 
 ---
 
-### FACT-4 — OPEN — Optional Services in `docker-compose.yml` Reference Undefined Network `llmnet`
+### FACT-4 — ✅ DISSOLVED (k8s-native rewrite) — Optional Services in `docker-compose.yml` Reference Undefined Network `llmnet`
+
+**Resolution:** `assets/docker-compose.yml` is retired. ComfyUI and Tabby are now
+k8s manifests (`assets/k8s/llm-core/comfyui.yaml`, `tabby.yaml`) with their own
+NetworkPolicies; the undefined `llmnet` Docker network no longer exists.
+
 
 **Location:** `assets/docker-compose.yml` lines 127, 138 (ComfyUI and Tabby optional services)
 
@@ -131,7 +168,10 @@ The compose file declares two networks: `frontend` and `backend`. `llmnet` is ne
 
 ## USABILITY / CLARITY
 
-### UX-1 — OPEN — Step 17 References Non-Existent `step 29 monitoring`
+### UX-1 — ✅ FIXED — Step 17 References Non-Existent `step 29 monitoring`
+
+**Resolution:** Changed the cross-reference to `step 14 monitoring`.
+
 
 **Location:** `17-admin-ui.md` — Audit log section
 
@@ -146,7 +186,12 @@ The guide has 17 steps. There is no step 29.
 
 ---
 
-### UX-2 — OPEN — Step 06 §1: Undefined `<server>` Placeholder; Tailscale Access Not Yet Available
+### UX-2 — ✅ FIXED (k8s-native rewrite) — Step 06 §1: Undefined `<server>` Placeholder; Tailscale Access Not Yet Available
+
+**Resolution:** Admin access is now a local `kubectl port-forward` to
+`localhost:4000` (gated by the Tailscale-restricted apiserver). The `<server>`
+placeholder is gone.
+
 
 **Location:** `06-gateway-litellm.md` §1
 
@@ -167,7 +212,11 @@ Add a note: "(After step 09, you can also run this from any Tailscale-connected 
 
 ---
 
-### UX-3 — OPEN — Step 06 §2/§3: `$LITELLM_MASTER_KEY` Used Without Showing How to Set the Shell Variable
+### UX-3 — ✅ FIXED (k8s-native rewrite) — Step 06 §2/§3: `$LITELLM_MASTER_KEY` Used Without Showing How to Set the Shell Variable
+
+**Resolution:** Step 06 §2 now sets the variable explicitly from the Secret:
+`LITELLM_MASTER_KEY=$(microk8s kubectl get secret litellm-credentials -n llm-core -o jsonpath='{.data.master-key}' | base64 -d)`.
+
 
 **Location:** `06-gateway-litellm.md` §2 and §3
 

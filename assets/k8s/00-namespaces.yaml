@@ -1,0 +1,13 @@
+# Static namespaces for the core stack. Per-user ws-<sub> namespaces are created
+# at runtime by the orchestrator (step 16) and are NOT defined here.
+#   llm-core     — inference, litellm, open-webui (the model-serving plane)
+#   llm-platform — cloudflared, and later authentik/traefik/orchestrator (step 15/16)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-core
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-platform

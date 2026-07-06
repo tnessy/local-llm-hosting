@@ -29,7 +29,7 @@
 
 ### Admin
 - [ ] SSH reachable over **Tailscale**.
-- [ ] `docker exec -it inference nvidia-smi` sees the GPU.
+- [ ] `microk8s kubectl exec -n llm-core deploy/inference -- nvidia-smi` sees the GPU.
 
 ## Negative tests (the important ones)
 
@@ -39,8 +39,9 @@
       from LiteLLM.
 - [ ] A **revoked** key (step 06 `key/delete`) stops working immediately.
 - [ ] The **inference engine port is unreachable** from the LAN:
-      from a LAN host, `curl http://<server-ip>:8080/v1/models` fails/refuses
-      (only `127.0.0.1:3000` for Open WebUI is bound locally; nothing else).
+      from a LAN host, `curl http://<server-ip>:8080/v1/models` fails/refuses —
+      all services are ClusterIP (no host ports), only the outbound Cloudflare
+      tunnel leaves the box, and `inference-policy` allows ingress from litellm only.
 - [ ] Host UI / SSH are **not** reachable from a device that is neither on the
       tailnet nor allow-listed in Cloudflare.
 - [ ] No inbound ports are forwarded on the router (verify router config).

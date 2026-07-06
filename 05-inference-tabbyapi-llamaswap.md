@@ -76,12 +76,12 @@ abstracts it). See the decisions log (D3/D4) to revisit.
 After [step 10](10-models.md) fills in real models:
 
 ```bash
-# from the server, exercise the internal endpoint directly
-docker exec -it litellm sh -c \
-  'curl -s http://inference:8080/v1/models'
+# from the server, exercise the internal endpoint via the litellm pod
+microk8s kubectl exec -n llm-core deploy/litellm -- \
+  curl -s http://inference:8080/v1/models
 ```
 
 You should see `coder` and `chat` listed. A first chat request triggers a cold
-load (watch `docker logs -f inference`), then responds.
+load (watch `microk8s kubectl logs -f -n llm-core deploy/inference`), then responds.
 
 → Continue to [06 — LiteLLM gateway](06-gateway-litellm.md).

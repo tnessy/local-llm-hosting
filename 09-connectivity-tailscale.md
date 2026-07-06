@@ -27,6 +27,17 @@ sudo ufw allow in on tailscale0
 In the Tailscale admin console, **disable key expiry** for the server node so it
 doesn't drop off, and add the tag `tag:llm` to it.
 
+> **Remote `kubectl` over Tailscale.** The MicroK8s API server binds to
+> `0.0.0.0:16443`, but UFW `default deny incoming` (step 02 §4) blocks it on the
+> LAN while the `tailscale0` allow rule above permits it over the tailnet. To drive
+> the cluster from your laptop, point a kubeconfig at the server's Tailscale IP:
+> ```bash
+> microk8s config | sed "s/127.0.0.1/$(tailscale ip -4)/" > ~/.kube/microk8s-tailscale.config
+> export KUBECONFIG=~/.kube/microk8s-tailscale.config
+> kubectl get nodes   # verify from your laptop over Tailscale
+> ```
+> On the server itself, loopback `microk8s kubectl` (127.0.0.1:16443) always works.
+
 ## 2. Install Tailscale on your own devices
 
 Install on your laptop/phone and log in to the same tailnet. You'll reach the

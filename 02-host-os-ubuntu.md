@@ -1,4 +1,4 @@
-# 02 — Host OS + GPU (Ubuntu Server 24.04 LTS)
+# 02 — Host OS + GPU (Ubuntu Server 26.04 LTS)
 
 ← [01 Prerequisites](01-prerequisites.md) · Next: [03 Storage](03-storage-ubuntu.md)
 
@@ -16,9 +16,24 @@
 > | `<LAN_CIDR>` | Local subnet in CIDR notation (e.g. `192.168.1.0/24`) | Router admin UI |
 > | `<GRAFANA_HOST_IP>` | LAN IP of the Grafana/Prometheus host (step 14 monitoring) | Fill in when step 14 monitoring is configured — leave the UFW rule commented out until then |
 
-## 1. Install Ubuntu Server 24.04 LTS
+> **Locked values for this server (`surtr`)** — baked into the commands below:
+>
+> | Placeholder | Value |
+> |---|---|
+> | `<your-user>` | `nss` |
+> | `<your/timezone>` | `America/New_York` |
+> | `<server-lan-ip>` | `192.168.68.55` (DHCP reservation by MAC on the router) |
+> | `<LAN_CIDR>` | `192.168.64.0/19` (derived from `192.168.68.55/19`) |
+> | `<GRAFANA_HOST_IP>` | _deferred to step 14_ |
 
-1. Download the **Ubuntu Server 24.04 LTS** ISO and flash it to a USB stick
+## 1. Install Ubuntu Server 26.04 LTS
+
+> ✅ **Completed on `surtr`.** Ubuntu Server 26.04 LTS is installed with LVM on
+> `nvme0n1`. Note the installer allocated only a **100 GB root LV**, leaving
+> ~1.7 TB unallocated in `ubuntu-vg`; the model store goes on a **dedicated
+> NVMe being added** — see [step 03](03-storage-ubuntu.md). Reference steps below.
+
+1. Download the **Ubuntu Server 26.04 LTS** ISO and flash it to a USB stick
    (e.g. with `dd` or Balena Etcher).
 2. Boot the server from the USB stick.
 3. Accept defaults (no GUI, no snaps beyond the installer). When prompted:
@@ -34,7 +49,7 @@ reboots using the system clock; set the correct timezone before configuring it.
 
 ```bash
 # List available timezones: timedatectl list-timezones | grep <Region>
-sudo timedatectl set-timezone <your/timezone>   # e.g. America/New_York, Europe/London, UTC
+sudo timedatectl set-timezone America/New_York
 timedatectl   # verify
 ```
 
@@ -98,10 +113,10 @@ down before proceeding.
 
 ```bash
 # On your admin machine: copy your public key to the server
-ssh-copy-id <your-user>@<server-lan-ip>
+ssh-copy-id nss@192.168.68.55
 
 # Then verify you can log in without a password prompt
-ssh <your-user>@<server-lan-ip>
+ssh nss@192.168.68.55
 ```
 
 **Phase 2 — Apply hardened settings:**
@@ -117,7 +132,7 @@ sudo sshd -t                  # validate config syntax
 sudo systemctl restart ssh
 
 # Verify: key login still works; password login is now rejected
-ssh <your-user>@<server-lan-ip>
+ssh nss@192.168.68.55
 ```
 
 > `PasswordAuthentication no` only controls SSH logins. `sudo` uses your
@@ -154,8 +169,8 @@ sudo ufw default allow outgoing
 
 # SSH from your local network. sshd's ListenAddress (step 09 §4) also restricts
 # which interfaces sshd binds to; UFW is the independent network-layer backstop.
-# Replace <LAN_CIDR> with your subnet, e.g. 192.168.1.0/24
-sudo ufw allow from <LAN_CIDR> to any port 22 proto tcp
+# LAN subnet for surtr (derived from 192.168.68.55/19)
+sudo ufw allow from 192.168.64.0/19 to any port 22 proto tcp
 
 # ── Monitoring placeholder (step 14) ──────────────────────────────────────────
 # Promtail pushes logs outbound to Loki — no inbound rule needed.
@@ -178,11 +193,12 @@ The Tailscale interface rule (`ufw allow in on tailscale0`) is added in
 [step 09 §1](09-connectivity-tailscale.md) once Tailscale is running.
 
 > **Docker and UFW:** Docker inserts iptables rules directly into the kernel,
-> bypassing UFW for any `ports:` binding. `docker-compose.yml` avoids this with
-> `127.0.0.1:` host bindings and `expose:` (container-internal only) — never
-> `0.0.0.0:`. §7 hardens this further by setting `"ip": "127.0.0.1"` in Docker's
-> daemon configuration, making loopback the default for any future service that
-> omits an explicit bind address.
+> bypassing UFW for any published `ports:` binding. Here Docker is only an image
+> builder (step 04 §5) and runs no port-publishing containers — the core stack is
+> MicroK8s, whose Services are ClusterIP (no host ports) reached via the outbound
+> tunnel. Any NodePort exception (e.g. Trivy metrics, step 14) gets an explicit
+> UFW rule. §7 still sets `"ip": "127.0.0.1"` as Docker's default bind, so any
+> future Docker service defaults to loopback.
 
 ## 5. Install the NVIDIA driver
 
@@ -201,10 +217,15 @@ nvidia-smi
 ```
 
 You should see your GPU, driver version, and VRAM. **Record the GPU UUID**
-(`GPU-xxxxxxxx-...`) — optional, used if you want to pin a specific card in
-`docker-compose.yml`.
+(`GPU-xxxxxxxx-...`) — optional, useful on a multi-GPU host to pin a specific
+card.
 
 ## 6. Install Docker Engine
+
+> ✅ **Docker already installed on `surtr`** — Docker Engine 29.6.1 + Compose
+> v5.3.0. Skip the repo/install block below. You still need the **`llm-svc`
+> service account** at the end of this section — check with `id llm-svc` and
+> create it (the two `useradd`/`usermod` lines) if it doesn't exist.
 
 ```bash
 # Add Docker's official apt repo

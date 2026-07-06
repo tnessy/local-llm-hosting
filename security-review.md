@@ -7,6 +7,36 @@ Round 1 fixes applied after initial review. Round 2 gaps found by adversarial
 re-check and closed in the same commit.
 
 ---
+
+> ## ⚠️ Architecture change (2026-07-06): k8s-native rewrite
+>
+> The guide moved from a **Docker Compose core + late MicroK8s migration** to
+> **MicroK8s from step 04**. The core stack (inference, litellm, open-webui,
+> cloudflared, Traefik) now deploys as Kubernetes manifests under
+> [`assets/k8s/`](assets/k8s/); `assets/docker-compose.yml` and `assets/.env.example`
+> are retired. This **voids the premise** of several Docker-specific findings —
+> they need re-adjudication in the pending per-finding Medium pass, not the fixes
+> they originally proposed:
+>
+> - **Dissolved (mechanism no longer exists):** H-6 (Docker bridge egress),
+>   M-23 (userns-remap), M-25 (compose service hardening), M-33 (flat `.env`),
+>   M-44 (`CF_TUNNEL_TOKEN` as docker env), M-45 (`TABBY_API_KEY` on `ps`).
+> - **Superseded by k8s equivalents applied in the rewrite:** default-deny +
+>   per-service NetworkPolicies (step 04 §8) replace Docker network isolation;
+>   k8s Secrets + `secretbox` encryption-at-rest (step 04 §2/§3) replace `.env`;
+>   `securityContext` (cap-drop, no-priv-esc, non-root where feasible) on every
+>   Deployment; digest pinning (step 04 §6) addresses the floating-tag findings
+>   (H-8/H-9/M-30).
+> - **Premise changed, still needs review:** M-24 (inference securityContext —
+>   partially applied), M-42 (AppArmor → k8s seccomp), M-47 (LiteLLM logs →
+>   k8s pod logs), M-57/H-20 (docker group still exists, Docker retained as an
+>   image builder).
+>
+> Location references below that point to `docker-compose.yml` or
+> `16-workspaces.md §4c/§4d` predate the rewrite; the equivalent resources now
+> live in `assets/k8s/` and are applied in step 04 (core) / step 15 (Authentik).
+
+---
 ## CRITICAL
 
 ### ~~C-1~~ — ✅ FIXED (R1 + R2) — Calico CNI Not Pre-Validated — All NetworkPolicies Silently Unenforced if Missing

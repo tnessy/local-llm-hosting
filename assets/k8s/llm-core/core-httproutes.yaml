@@ -1,0 +1,37 @@
+# Host-based routes for the two public core services, attached to core-gateway
+# (in llm-platform). These live in llm-core so their backendRefs stay
+# same-namespace — no ReferenceGrant needed. The core-gateway ui/api listeners
+# explicitly allow routes from llm-core.
+#
+# Replace domain.com with your domain.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: open-webui-route
+  namespace: llm-core
+spec:
+  parentRefs:
+  - name: core-gateway
+    namespace: llm-platform
+    sectionName: ui
+  hostnames: ["llm.domain.com"]
+  rules:
+  - backendRefs:
+    - name: open-webui
+      port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: litellm-route
+  namespace: llm-core
+spec:
+  parentRefs:
+  - name: core-gateway
+    namespace: llm-platform
+    sectionName: api
+  hostnames: ["api.domain.com"]
+  rules:
+  - backendRefs:
+    - name: litellm
+      port: 4000

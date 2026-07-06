@@ -14,8 +14,9 @@
    is **Active** in the Cloudflare dashboard.
 2. **Cloudflare Zero Trust.** Enable Zero Trust (free plan) on the account.
 3. **Cloudflare Tunnel.** Zero Trust → Networks → Tunnels → **Create tunnel** →
-   name `home-llm` → choose the **Docker** connector → copy the token from the
-   shown `--token <...>` command. Save it for `CF_TUNNEL_TOKEN` in `.env`.
+   name `home-llm` → pick any connector type → copy the token from the shown
+   `--token <...>` command. Save it — it becomes the `cloudflared-credentials`
+   Kubernetes Secret in [step 04](04-deploy-stack-ubuntu.md).
    (You'll add the public hostnames in [step 08](08-connectivity-cloudflare.md).)
 4. **Tailscale account.** Sign up (free Personal plan is fine) at tailscale.com.
    You'll install it on the server and your own devices in
@@ -39,6 +40,13 @@ No DNS records needed yet — the tunnel creates them in step 08.
 | **Cooling / noise** | Sustained inference runs hot; ensure real airflow. |
 | **Network** | Gigabit LAN. Your **ISP upload** speed is the real remote bottleneck (light for text, heavier for images). |
 | **UPS** | Optional but nice for a 24/7 box. |
+
+> **This build — `surtr` (locked 2026-07):** 12th Gen Intel Core i7-12700KF
+> (12C/20T) · 32 GB RAM · **NVIDIA RTX 3080 Ti — 12 GB VRAM** · 1.8 TB NVMe
+> (OS + LVM; a dedicated model-store NVMe is being added). The 12 GB card places
+> this box in the smaller VRAM tier — see the note in [step 10](10-models.md):
+> one model resident at a time, ≤14B-class coder. Bigger models route to a
+> hosted API via LiteLLM.
 
 ### GPU options compared
 
@@ -78,5 +86,6 @@ known provenance. They move weekly; re-check before buying.
 
 ## OS path (D8)
 
-This guide uses **Ubuntu Server 24.04 LTS** — plain Linux with first-class NVIDIA
-driver support and no NAS overhead. Continue to [step 02](02-host-os-ubuntu.md).
+This guide targets **Ubuntu Server 26.04 LTS** (resolute) — plain Linux with
+first-class NVIDIA driver support and no NAS overhead. Continue to
+[step 02](02-host-os-ubuntu.md).

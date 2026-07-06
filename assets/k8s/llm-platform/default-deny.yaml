@@ -1,0 +1,10 @@
+# Default-deny baseline for llm-platform. Apply BEFORE the explicit allow
+# policies in networkpolicies.yaml. Same rationale as the llm-core baseline.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: llm-platform
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]

@@ -1,0 +1,66 @@
+# Gateway for the core public hostnames. cloudflared forwards all tunnel traffic
+# to Traefik on :80; Traefik routes by Host header via the HTTPRoutes attached to
+# these listeners. The workspace-gateway (*.ws.domain.com) is created separately
+# in step 16.
+#
+# The ui/api listeners accept routes from llm-core (where core-httproutes.yaml
+# lives) and llm-platform. The admin/auth listeners accept routes only from
+# llm-platform; their HTTPRoutes are added in steps 17 and 15.
+#
+# Replace domain.com with your domain.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: core-gateway
+  namespace: llm-platform
+spec:
+  gatewayClassName: traefik
+  listeners:
+  - name: ui
+    hostname: "llm.domain.com"
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: In
+            values: [llm-platform, llm-core]
+  - name: api
+    hostname: "api.domain.com"
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: In
+            values: [llm-platform, llm-core]
+  - name: admin
+    hostname: "admin.domain.com"
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: In
+            values: [llm-platform]
+  - name: auth
+    hostname: "auth.domain.com"
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: In
+            values: [llm-platform]

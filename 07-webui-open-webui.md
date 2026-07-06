@@ -10,25 +10,30 @@
 >
 > | Placeholder | What it is | Where to find it |
 > |---|---|---|
-> | `OPENWEBUI_LITELLM_KEY` | LiteLLM virtual key for Open WebUI's backend connection | Minted in step 06 — add to `/opt/home-llm/.env` and restart `open-webui` |
+> | `OPENWEBUI_LITELLM_KEY` | LiteLLM virtual key for Open WebUI's backend connection | Minted and patched into the `openwebui-credentials` Secret in [step 06 §2](06-gateway-litellm.md) |
 
 Open WebUI (decision **D6**) is the browser chat UI for non-technical friends and
 your **application-layer auth boundary** (accounts + signup disabled), sitting
 behind Cloudflare Access.
 
-It's already wired to LiteLLM by `docker-compose.yml`:
-`OPENAI_API_BASE_URL=http://litellm:4000/v1` with the key from
+It's already wired to LiteLLM by the
+[`open-webui.yaml`](assets/k8s/llm-core/open-webui.yaml) manifest:
+`OPENAI_API_BASE_URL=http://litellm.llm-core:4000/v1` with the key from
 [step 06](06-gateway-litellm.md).
 
 ## 1. First-run admin account
 
-1. Browse to `http://localhost:3000` (locally, or over Tailscale). Until
-   [step 08](08-connectivity-cloudflare.md) it isn't public.
+1. Reach the UI via a local port-forward (it isn't public until
+   [step 08](08-connectivity-cloudflare.md)):
+   ```bash
+   microk8s kubectl port-forward -n llm-core svc/open-webui 3000:8080
+   ```
+   Then browse to `http://localhost:3000`.
 2. The **first account you create becomes the admin** — this is you.
 
 ## 2. Lock down signup
 
-`docker-compose.yml` already sets `ENABLE_SIGNUP=false`, so no one can
+The `open-webui.yaml` manifest already sets `ENABLE_SIGNUP=false`, so no one can
 self-register. Confirm under **Admin Panel → Settings → Authentication** that new
 sign-ups are disabled and default role is `user`.
 
@@ -46,7 +51,7 @@ The model dropdown should list `coder` and `chat` (served via LiteLLM →
 llama-swap). If empty:
 - check `OPENWEBUI_LITELLM_KEY` is set and valid,
 - **Admin Panel → Settings → Connections** shows the OpenAI connection to
-  `http://litellm:4000/v1`,
+  `http://litellm.llm-core:4000/v1`,
 - models exist (after [step 10](10-models.md)).
 
 ## 5. (Optional) image generation

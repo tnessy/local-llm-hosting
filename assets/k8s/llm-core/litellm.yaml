@@ -1,0 +1,92 @@
+# API gateway: per-user virtual keys, budgets, dialect translation.
+# The auth + isolation boundary between all clients and the inference engine.
+# Credentials come from the litellm-credentials + tabby-credentials Secrets
+# (step 04 §3) via secretKeyRef — never inline value: fields, which are readable
+# from the pod spec by anything with pods:get.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: litellm-db
+  namespace: llm-core
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: microk8s-hostpath
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: llm-core
+  labels:
+    app: litellm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: litellm
+  template:
+    metadata:
+      labels:
+        app: litellm
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000                 # so the mounted PVC is writable by uid 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: litellm
+        image: ghcr.io/berriai/litellm:main-stable   # pin to digest — step 04 §6
+        args: ["--config", "/app/config.yaml", "--port", "4000"]
+        ports:
+        - containerPort: 4000
+        env:
+        - name: LITELLM_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: litellm-credentials
+              key: master-key
+        - name: LITELLM_SALT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: litellm-credentials
+              key: salt-key
+        - name: TABBY_API_KEY         # litellm authenticates to TabbyAPI as this key
+          valueFrom:
+            secretKeyRef:
+              name: tabby-credentials
+              key: api-key
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: config
+          mountPath: /app/config.yaml
+          subPath: litellm-config.yaml
+          readOnly: true
+        - name: db
+          mountPath: /app/db
+      volumes:
+      - name: config
+        configMap:
+          name: litellm-config
+      - name: db
+        persistentVolumeClaim:
+          claimName: litellm-db
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm
+  namespace: llm-core
+spec:
+  selector:
+    app: litellm
+  ports:
+  - port: 4000
+    targetPort: 4000

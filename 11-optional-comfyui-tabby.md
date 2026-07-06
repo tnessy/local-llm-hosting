@@ -2,38 +2,45 @@
 
 ← [10 Models](10-models.md) · Next: [12 Clients](12-clients.md)
 
-> **Overview:** Optionally add ComfyUI (Stable Diffusion) and/or Tabby ML (code autocomplete) as additional Docker Compose services that share the same GPU as the inference stack.
+> **Overview:** Optionally add ComfyUI (Stable Diffusion) and/or Tabby ML (code autocomplete) as additional k8s Deployments in `llm-core` that share the same GPU as the inference engine.
 >
-> **Why:** Both services reuse the existing Docker network and NVIDIA runtime with no firewall changes. The main constraint is VRAM contention — the LLM engine must be unloaded for either service to use the GPU simultaneously.
+> **Why:** Both reuse the cluster's NVIDIA device plugin and in-cluster networking with no firewall changes. The main constraint is VRAM contention — the LLM engine and either service compete for the single GPU.
 
 Optional sibling services (decision **D10**). Both share the **one GPU** with the
 LLM engine — mind VRAM contention (see the caution at the end).
 
-Both are pre-written but **commented out** in
-[`assets/docker-compose.yml`](assets/docker-compose.yml); uncomment what you want.
+Each is a self-contained manifest under
+[`assets/k8s/llm-core/`](assets/k8s/llm-core/) (Deployment + Service + PVC +
+NetworkPolicy). Apply only what you want.
 
 ## ComfyUI — Stable Diffusion
 
 Why ComfyUI: its **queue + WebSocket** API sidesteps Cloudflare's ~100 s timeout
 (unlike a single blocking HTTP generate call).
 
-1. Uncomment the `comfyui` service and the `comfyui-data` volume in compose.
-2. `docker compose up -d comfyui`.
-3. Expose it to friends (optional): add a tunnel route
-   `sd.domain.com → http://comfyui:8188` and an **Access** policy (same allowlist
-   as the UI) in [step 08](08-connectivity-cloudflare.md).
-4. Integrate into chat (optional): Open WebUI → Admin → Settings → **Images** →
-   engine ComfyUI, base URL `http://comfyui:8188`. UI friends generate images
-   from chat.
+1. Deploy it:
+   ```bash
+   microk8s kubectl apply -f assets/k8s/llm-core/comfyui.yaml
+   ```
+2. Integrate into chat: Open WebUI → Admin → Settings → **Images** → engine
+   ComfyUI, base URL `http://comfyui.llm-core:8188`. UI friends generate images
+   from chat (the `comfyui-policy` already allows open-webui → comfyui).
+3. Expose it to friends (optional, advanced): add an `sd.` listener to the
+   `core-gateway` and an HTTPRoute to the `comfyui` Service, then a
+   `sd.domain.com → http://traefik.llm-platform:80` tunnel route + **Access**
+   policy in [step 08](08-connectivity-cloudflare.md).
 
 ## Tabby — self-hosted code autocomplete
 
 A Copilot-style FIM completion server for the IDE.
 
-1. Uncomment the `tabby` service and `tabby-data` volume.
-2. `docker compose up -d tabby`.
-3. Point the Tabby IDE plugin (VS Code/JetBrains) at it over Tailscale, or add a
-   tunnel route + Access policy if a remote friend needs it.
+1. Deploy it:
+   ```bash
+   microk8s kubectl apply -f assets/k8s/llm-core/tabby.yaml
+   ```
+2. Reach the Tabby IDE plugin (VS Code/JetBrains) at it via
+   `microk8s kubectl port-forward -n llm-core svc/tabby 8080:8080` over Tailscale,
+   or add a Gateway listener + HTTPRoute + tunnel route if a remote friend needs it.
 
 > Continue (step 12) also does autocomplete against your main models, so Tabby is
 > only worth it if you want a dedicated, always-on completion model.
@@ -51,8 +58,8 @@ SD and the LLM both want the GPU:
 
 ## Verification
 
-- ComfyUI UI loads (locally `http://localhost:8188` via Tailscale); a test
-  generation completes.
-- Tabby `/v1/health` responds; IDE shows inline completions.
+- ComfyUI UI loads via `microk8s kubectl port-forward -n llm-core svc/comfyui 8188:8188`
+  then `http://localhost:8188`; a test generation completes.
+- Tabby `/v1/health` responds (through its port-forward); IDE shows inline completions.
 
 → Continue to [12 — Clients](12-clients.md).

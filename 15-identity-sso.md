@@ -43,11 +43,16 @@ alternatives) as the IdP.
 
 ## Setup outline
 
-1. **Deploy Authentik** as containers (server + worker + postgres + redis).
-   In the Docker Compose phase: on the `frontend` network. In the MicroK8s
-   phase: in `llm-platform` namespace (see [step 16](16-workspaces.md) §4d for
-   NetworkPolicies). Generate secrets before first launch — see §Authentik
-   hardening → Secrets below.
+1. **Deploy Authentik** (server + worker + postgres + redis) via its Helm chart
+   into the `llm-platform` namespace. Generate secrets before first launch — see
+   §Authentik hardening → Secrets below. Once the pods are running, apply the
+   Authentik NetworkPolicies (they layer on the `llm-platform` default-deny from
+   [step 04 §8](04-deploy-stack-ubuntu.md)):
+   ```bash
+   # Verify the chart's pod labels first, then apply:
+   microk8s kubectl get pods -n llm-platform --show-labels | grep authentik
+   microk8s kubectl apply -f assets/k8s/llm-platform/authentik-networkpolicies.yaml
+   ```
 2. **Harden Authentik before exposing it** — complete all steps in
    §Authentik hardening below before routing `auth.domain.com` to it.
 3. **Create groups**: `grp-admin`, `grp-ui`, `grp-api`, `grp-workspaces`. Assign
@@ -86,9 +91,10 @@ openssl rand -hex 32   # → AUTHENTIK_SECRET_KEY
 openssl rand -hex 32   # → postgres password (AUTHENTIK_POSTGRESQL__PASSWORD / PG_PASS)
 ```
 
-Set them in your Helm values file (MicroK8s) or Docker Compose env file. Use the
-same Docker-secrets pattern as `LITELLM_MASTER_KEY` if running in Compose (step 04 §2)
-— do not pass them as plain environment variables visible in `docker inspect`.
+Store them as a Kubernetes Secret in `llm-platform` (encrypted at rest by the
+`secretbox` provider from [step 04 §2](04-deploy-stack-ubuntu.md)) and reference
+them from the Helm values via `existingSecret` / `secretKeyRef` — never inline
+values in the Helm chart, which land readable in the release ConfigMap.
 
 > **`AUTHENTIK_SECRET_KEY` is permanent.** It signs tokens and encrypts stored
 > credentials. Rotating it after initial setup immediately invalidates every active
@@ -107,15 +113,6 @@ your Tailscale connection:
 microk8s kubectl port-forward svc/authentik-server 9000:9000 -n llm-platform
 # Open http://localhost:9000/if/admin/ in your browser
 # Ctrl+C when done — do not leave the forward running unattended
-```
-
-In the Docker Compose phase (before MicroK8s migration) Authentik has no
-published ports. Use SSH port forwarding from your admin machine:
-
-```bash
-ssh -L 9000:localhost:9000 <server-lan-ip>
-# On the server, find the Authentik container IP and port-forward there,
-# or temporarily expose port 9000 on 127.0.0.1 for the setup session only.
 ```
 
 ### MFA enforcement

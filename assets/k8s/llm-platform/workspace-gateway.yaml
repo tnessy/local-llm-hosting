@@ -1,0 +1,25 @@
+# Gateway for the wildcard workspace subdomains, on the same Traefik installed in
+# step 04. Accepts routes only from llm-platform, where the orchestrator creates
+# one HTTPRoute per workspace at launch — never from ws-* namespaces directly.
+#
+# Replace domain.com with your domain.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: workspace-gateway
+  namespace: llm-platform
+spec:
+  gatewayClassName: traefik
+  listeners:
+  - name: workspaces
+    hostname: "*.ws.domain.com"
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: In
+            values: [llm-platform]   # orchestrator creates HTTPRoutes here only

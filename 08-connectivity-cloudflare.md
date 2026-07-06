@@ -25,19 +25,29 @@ Full settings reference: [`assets/cloudflare-access-notes.md`](assets/cloudflare
 Zero Trust → Networks → Tunnels → `home-llm` should show **Healthy**. If not:
 
 ```bash
-docker logs cloudflared --tail 50
+microk8s kubectl logs -n llm-platform deploy/cloudflared --tail 50
 ```
 
 ## 2. Publish the hostnames
 
-In the tunnel's **Published application routes**:
+Every hostname points at the **same** in-cluster target — Traefik — which routes
+by `Host` header to the right backend via the Gateway API
+([step 04 §7–8](04-deploy-stack-ubuntu.md)). In the tunnel's **Published
+application routes**:
 
-| Public hostname | Service |
-|---|---|
-| `llm.domain.com` | `http://open-webui:8080` |
-| `api.domain.com` | `http://litellm:4000` |
-| `admin.domain.com` | `http://admin-ui:8080` |
-| `auth.domain.com` | `http://authentik-server:9000` |
+| Public hostname | Service | Add when |
+|---|---|---|
+| `llm.domain.com` | `http://traefik.llm-platform:80` | Now |
+| `api.domain.com` | `http://traefik.llm-platform:80` | Now |
+| `auth.domain.com` | `http://traefik.llm-platform:80` | † [Step 15](15-identity-sso.md) — after Authentik and its `auth.` HTTPRoute exist |
+| `admin.domain.com` | `http://traefik.llm-platform:80` | † [Step 17](17-admin-ui.md) — after the Admin UI and its `admin.` HTTPRoute exist |
+
+> **† Add the last two rows later.** The `core-gateway` has `auth.` and `admin.`
+> listeners, but no HTTPRoute attaches to them until Authentik (step 15) and the
+> Admin UI (step 17) are deployed. Publish a tunnel route before its HTTPRoute
+> exists and Traefik answers **404** for that hostname. Add `llm.` and `api.` now
+> (their HTTPRoutes are created in step 04); return for `auth.` in step 15 and
+> `admin.` in step 17.
 
 `auth.domain.com` exposes only Authentik's OIDC endpoints — the WAF rules
 in §5 block all other paths including the Authentik admin UI. Cloudflare
@@ -86,7 +96,8 @@ admin endpoint not listed here):
 > LiteLLM admin route — is blocked by the first rule without requiring a
 > dedicated block entry. The `(?i)` flag makes matching case-insensitive,
 > preventing capitalisation bypasses (e.g. `/KEY/generate`, `/V1/Chat/Completions`).
-> Admin operations go via Tailscale only (direct to port 4000 — step 06).
+> Admin operations go via a Tailscale-gated `kubectl port-forward` only — never
+> the tunnel (see [step 06](06-gateway-litellm.md)).
 
 ## 5. Access on the auth endpoint (`auth.domain.com`) — bypass + WAF path allowlist
 
@@ -119,96 +130,30 @@ zone):
 > (step 15). CVE exposure from public-facing Authentik is monitored by the
 > Trivy Operator (step 14/H-29).
 
-## 6. Tunnel token — store as a k8s Secret
+## 6. Tunnel token hygiene
 
-`CF_TUNNEL_TOKEN` grants anyone who holds it the ability to register a
-connector on your tunnel and intercept all traffic. Store it as a k8s Secret,
-not in a plaintext file.
+`CF_TUNNEL_TOKEN` grants anyone who holds it the ability to register a connector
+on your tunnel and intercept all traffic. It is stored as the
+`cloudflared-credentials` Kubernetes Secret ([step 04 §3](04-deploy-stack-ubuntu.md)),
+encrypted at rest by the `secretbox` provider ([step 04 §2](04-deploy-stack-ubuntu.md)),
+and injected into the cloudflared pod via `secretKeyRef` — never a plaintext file
+or a `docker inspect`-readable env literal.
 
-**Step 1 — Set up connector notifications before doing anything else.**
-During the migration below, two connectors will briefly be active simultaneously.
-If the token was already leaked, an attacker could register a third connector
-during that window. Notifications must be in place before the window opens:
+**Set up connector notifications** so a leaked token that spawns a rogue
+connector is detected immediately:
 
 1. Zero Trust → Networks → Tunnels → `home-llm` → **Notifications** → **Add**
-2. Select event types: **Tunnel created or deleted** + **Connector connected or disconnected**
+2. Event types: **Tunnel created or deleted** + **Connector connected or disconnected**
 3. Notification channel: **Email** → your admin address
-4. Save, then verify the rules appear with a green checkmark on the Notifications tab
+4. Save; verify the rules show a green checkmark on the Notifications tab
 
-**Step 2 — Create the k8s Secret.**
-
-Use `--from-file` so the token value never appears as a command-line argument
-(which would persist it in shell history and `/proc/<pid>/cmdline`):
-
-```bash
-# Create the temp file at mode 600 before writing — default umask 022 would
-# otherwise produce mode 644, making it world-readable
-install -m 600 /dev/null /tmp/cf-token
-
-# Strip the trailing newline that grep|cut produces — --from-file stores bytes
-# verbatim, so a trailing newline would be included in the Secret value and
-# could cause cloudflared authentication failures
-grep 'CF_TUNNEL_TOKEN=' /opt/home-llm/.env | cut -d= -f2 | tr -d '\n' > /tmp/cf-token
-
-microk8s kubectl create secret generic cloudflared-credentials \
-  --namespace llm-platform \
-  --from-file=token=/tmp/cf-token
-
-# /tmp is tmpfs (RAM-backed); shred provides no guarantee on tmpfs.
-# rm -f is sufficient — the pages are reclaimed on next memory pressure or reboot.
-rm -f /tmp/cf-token
-```
-
-Reference it in the cloudflared Deployment:
-
-```yaml
-env:
-- name: TUNNEL_TOKEN
-  valueFrom:
-    secretKeyRef:
-      name: cloudflared-credentials
-      key: token
-```
-
-**Step 3 — Cut over and stop the Docker Compose container.**
-
-Once the cloudflared Deployment is running and confirmed healthy, stop the
-Docker Compose `cloudflared` container. If it keeps running, the token remains
-live in its environment and readable via `docker inspect cloudflared` by any
-docker-group member — and two connectors are simultaneously registered on the
-tunnel (the MITM scenario C-5 describes):
-
-```bash
-# Confirm the k8s connector is active first
-microk8s kubectl rollout status deployment/cloudflared -n llm-platform
-
-# Then stop and remove the Docker Compose container
-docker compose stop cloudflared
-docker compose rm -f cloudflared
-```
-
-**Step 4 — Clean up `.env` and confirm connector count.**
-
-```bash
-# GNU sed on Linux preserves the original file's permissions (fchmod before rename),
-# so chmod 600 set in step 04 is maintained after this edit.
-sed -i 's/^CF_TUNNEL_TOKEN=.*/CF_TUNNEL_TOKEN=MOVED_TO_K8S_SECRET/' /opt/home-llm/.env
-```
-
-Confirm exactly one connector remains:
+**Confirm the connector count** matches your cloudflared replicas:
 
 - Zero Trust → Networks → Tunnels → `home-llm` → **Connectors** tab
-- Expected: exactly 1 connector, status **Active**
+- Expected: one connector per running `cloudflared` pod (2 by default — see the
+  [cloudflared manifest](assets/k8s/llm-platform/cloudflared.yaml)), all **Active**
 
-A second connector appearing is the primary indicator of a leaked token.
-
-> **Secrets at rest:** MicroK8s stores k8s Secrets in dqlite, which is
-> base64-encoded but **not encrypted** by default. An attacker with host
-> filesystem access can read the token from dqlite directly. For defence-in-depth,
-> enable k8s EncryptionConfiguration (AES-CBC or AES-GCM provider) following
-> the [Kubernetes docs on encrypting data at rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/),
-> or ensure the host disk is encrypted with LUKS. Tracked as **H-14** in
-> [`security-review.md`](security-review.md).
+An *unexpected* extra connector is the primary indicator of a leaked token.
 
 ## 7. Why this is safe
 
@@ -217,9 +162,10 @@ A second connector appearing is the primary indicator of a leaked token.
 - API: LiteLLM virtual key (per-user auth, budgets, rate limits) **+** WAF
   path allowlist (blocks all non-inference paths) **+** per-IP rate limit.
   Admin operations require Tailscale access only — never routed through the tunnel.
-- The inference engine is never exposed — only `open-webui` and `litellm` are
-  routed. Even a full cloudflared container compromise gives no direct path to
-  inference (Docker network isolation — see step 04).
+- The inference engine is never exposed — cloudflared reaches only Traefik, which
+  routes only to `open-webui` and `litellm`. Even a full cloudflared compromise
+  gives no path to inference: the `inference-policy` NetworkPolicy
+  ([step 04 §8](04-deploy-stack-ubuntu.md)) allows ingress from `litellm` alone.
 
 ## Verification
 

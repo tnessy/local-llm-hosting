@@ -1,0 +1,76 @@
+# Inference: llama-swap (model lifecycle) + TabbyAPI/ExLlamaV2 (engine).
+# The ONLY GPU workload. llama-swap reads its ConfigMap, starts the TabbyAPI
+# process for the requested model, and unloads it when another model is needed,
+# so models time-share the single GPU. Image is built locally and pushed to the
+# MicroK8s registry (step 04 §5).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference
+  namespace: llm-core
+  labels:
+    app: inference
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate            # single GPU — never run two inference pods at once
+  selector:
+    matchLabels:
+      app: inference
+  template:
+    metadata:
+      labels:
+        app: inference
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: inference
+        # Pin to a digest after the first push — step 04 §6.
+        image: localhost:32000/home-llm-inference:latest
+        ports:
+        - containerPort: 8080         # llama-swap OpenAI-compatible endpoint (cluster-internal)
+        env:
+        - name: TABBY_API_KEY         # internal key TabbyAPI requires; never exposed publicly
+          valueFrom:
+            secretKeyRef:
+              name: tabby-credentials
+              key: api-key
+        resources:
+          limits:
+            nvidia.com/gpu: 1         # one GPU, time-shared across models by llama-swap
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          # readOnlyRootFilesystem is intentionally NOT set: TabbyAPI compiles and
+          # caches CUDA kernels to the container filesystem at model load.
+        volumeMounts:
+        - name: config
+          mountPath: /app/config.yaml
+          subPath: llama-swap-config.yaml
+          readOnly: true
+        - name: models
+          mountPath: /models
+          readOnly: true              # weights are written to /srv/models on the host (step 10)
+      volumes:
+      - name: config
+        configMap:
+          name: llama-swap-config
+      - name: models
+        hostPath:
+          path: /srv/models           # NVMe model store (step 03)
+          type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference
+  namespace: llm-core
+spec:
+  selector:
+    app: inference
+  ports:
+  - port: 8080
+    targetPort: 8080

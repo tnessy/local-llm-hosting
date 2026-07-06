@@ -3,7 +3,7 @@
 # model a request asks for (see ../llama-swap-config.yaml) and unloads it when a
 # different model is needed, so models time-share the single GPU.
 #
-# Build is done automatically by `docker compose build inference` (step 04).
+# Built with `docker build` and pushed to the MicroK8s registry (step 04 §5).
 #
 # Before building, pin this base image to a digest (step 04 §4):
 #   docker pull ghcr.io/theroyallab/tabbyapi:latest
@@ -25,7 +25,8 @@ RUN test -n "${LLAMA_SWAP_SHA256}" \
     && printf '%s  /usr/local/bin/llama-swap\n' "${LLAMA_SWAP_SHA256}" | sha256sum -c \
     && chmod +x /usr/local/bin/llama-swap
 
-# llama-swap config is bind-mounted at /app/config.yaml by docker-compose.
+# llama-swap config is mounted at /app/config.yaml from the llama-swap-config
+# ConfigMap (step 04 §4).
 WORKDIR /app
 EXPOSE 8080
 

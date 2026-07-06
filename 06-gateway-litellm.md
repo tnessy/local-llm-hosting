@@ -16,20 +16,37 @@ LiteLLM (decision **D5**) is the single API front door. It:
 
 Config: [`assets/litellm-config.yaml`](assets/litellm-config.yaml).
 
-> **Security:** All admin operations (`/key/*`, `/user/*`, `/model/info`,
-> `/health`) must be performed **via Tailscale only** (direct to
-> `http://<server>:4000` on the tailnet). These paths are blocked at the
+> **Security:** LiteLLM is never exposed for admin use. All admin operations
+> (`/key/*`, `/user/*`, `/model/info`, `/health`) run through a local
+> `kubectl port-forward`, which is gated by the Tailscale-restricted kube-apiserver
+> ([step 09](09-connectivity-tailscale.md)). These paths are also blocked at the
 > Cloudflare WAF on `api.domain.com` — see [step 08](08-connectivity-cloudflare.md).
 > Never run admin calls against the public hostname.
 
 ## 1. Confirm it's running
 
+Admin calls reach LiteLLM through a local port-forward. Leave this running in a
+separate terminal for the rest of this step:
+
 ```bash
-# Run from your Tailscale-connected machine or directly on the server
-curl -s http://<server>:4000/health
+microk8s kubectl port-forward -n llm-core svc/litellm 4000:4000
+```
+
+Then, in another terminal:
+
+```bash
+curl -s http://localhost:4000/health
 ```
 
 ## 2. Mint the Open WebUI key
+
+The master key is read from the Kubernetes Secret — it is never a host file or an
+env literal:
+
+```bash
+LITELLM_MASTER_KEY=$(microk8s kubectl get secret litellm-credentials -n llm-core \
+  -o jsonpath='{.data.master-key}' | base64 -d)
+```
 
 Open WebUI authenticates to LiteLLM with its own virtual key:
 
@@ -40,12 +57,14 @@ curl -s http://localhost:4000/key/generate \
   -d '{"models":["coder","chat"],"key_alias":"open-webui"}'
 ```
 
-Open `.env` with a text editor and add the returned key as `OPENWEBUI_LITELLM_KEY`
-(use an editor, not shell redirection — shell substitution persists the value in history):
+Store the returned key in the `openwebui-credentials` Secret (seeded empty in
+step 04 §3) and restart Open WebUI so it picks it up:
 
 ```bash
-nano /opt/home-llm/.env             # add: OPENWEBUI_LITELLM_KEY=sk-...
-docker compose up -d open-webui     # restart so it picks up the key
+OPENWEBUI_LITELLM_KEY=sk-...        # the "key" value from the response above
+microk8s kubectl patch secret openwebui-credentials -n llm-core \
+  --type merge -p "{\"stringData\":{\"litellm-key\":\"$OPENWEBUI_LITELLM_KEY\"}}"
+microk8s kubectl rollout restart deploy/open-webui -n llm-core
 ```
 
 ## 3. Mint a key per API friend
@@ -95,93 +114,24 @@ curl -s http://localhost:4000/v1/chat/completions \
 Returns a completion (after the cold-load on first hit). A bad/absent key returns
 401 — confirming the gateway is enforcing auth.
 
-## MicroK8s deployment (llm-core namespace)
+## How LiteLLM is deployed
 
-When running in MicroK8s, LiteLLM lives in the `llm-core` namespace. Credentials
-**must** use `secretKeyRef` — never literal `value:` fields. The orchestrator
-has cluster-wide `pods: get/list/watch`; any credential stored as a plain env
-var is readable from the pod spec without touching the Secrets API.
+LiteLLM runs in the `llm-core` namespace, deployed in
+[step 04 §8](04-deploy-stack-ubuntu.md) from
+[`assets/k8s/llm-core/litellm.yaml`](assets/k8s/llm-core/litellm.yaml). Its config
+comes from the `litellm-config` ConfigMap; the master key, salt key, and
+`TABBY_API_KEY` come from the `litellm-credentials` / `tabby-credentials` Secrets
+via `secretKeyRef`.
 
-```bash
-# Create the Secret first — fill in real values
-microk8s kubectl create secret generic litellm-credentials \
-  --namespace llm-core \
-  --from-literal=master-key=sk-$(openssl rand -hex 32) \
-  --from-literal=salt-key=$(openssl rand -hex 32)
-```
-
-```yaml
-# assets/k8s/llm-core/litellm-deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: litellm
-  namespace: llm-core
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: litellm
-  template:
-    metadata:
-      labels:
-        app: litellm
-    spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-      - name: litellm
-        image: ghcr.io/berriai/litellm:main-latest
-        args: ["--config", "/app/config.yaml"]
-        ports:
-        - containerPort: 4000
-        env:
-        - name: LITELLM_MASTER_KEY
-          valueFrom:
-            secretKeyRef:
-              name: litellm-credentials
-              key: master-key
-        - name: LITELLM_SALT_KEY
-          valueFrom:
-            secretKeyRef:
-              name: litellm-credentials
-              key: salt-key
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-        volumeMounts:
-        - name: config
-          mountPath: /app/config.yaml
-          subPath: litellm-config.yaml
-          readOnly: true
-      volumes:
-      - name: config
-        configMap:
-          name: litellm-config
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: litellm
-  namespace: llm-core
-spec:
-  selector:
-    app: litellm
-  ports:
-  - port: 4000
-    targetPort: 4000
-```
-
-```bash
-microk8s kubectl apply -f assets/k8s/llm-core/litellm-deployment.yaml
-
-# Verify credentials are sourced from the Secret, not inline
-microk8s kubectl get pod -n llm-core -l app=litellm -o jsonpath='{.items[0].spec.containers[0].env}'
-# Output must show valueFrom.secretKeyRef entries — never a literal value field
-```
+> **Credentials must use `secretKeyRef` — never literal `value:` fields.** The
+> orchestrator (step 16) has cluster-wide `pods: get/list/watch`; any credential
+> stored as a plain env var is readable from the pod spec without touching the
+> Secrets API. Verify LiteLLM sources its credentials correctly:
+>
+> ```bash
+> microk8s kubectl get pod -n llm-core -l app=litellm \
+>   -o jsonpath='{.items[0].spec.containers[0].env}'
+> # Every entry must show valueFrom.secretKeyRef — never a literal value field
+> ```
 
 → Continue to [07 — Open WebUI](07-webui-open-webui.md).
