@@ -88,7 +88,7 @@ it's implemented, so changing a decision = editing that step.
 | D5 | API gateway | **LiteLLM** | Per-user keys/budgets + OpenAI/Responses/Anthropic dialect translation. | [06](06-gateway-litellm.md) |
 | D6 | Web UI | **Open WebUI** | General-chat-first + RBAC auth boundary. Alt: AnythingLLM (RAG-first — rejected for this use). | [07](07-webui-open-webui.md) |
 | D7 | Coding clients | **Continue (IDE) + Aider (CLI)** | Model-agnostic, forgiving of local models. Any OAI/Anthropic tool also works. | [12](12-clients.md) |
-| D8 | Host OS | **Ubuntu Server 24.04 LTS** | Plain Linux — no NAS overhead; best NVIDIA/CUDA driver support; runs MicroK8s + Docker (as an image builder) cleanly. Alt: Debian (slightly more manual NVIDIA setup), Arch (rolling — too risky for 24/7). | [02](02-host-os-ubuntu.md) |
+| D8 | Host OS | **Ubuntu Server (latest LTS)** | Plain Linux — no NAS overhead; best NVIDIA/CUDA driver support; runs MicroK8s + Docker (as an image builder) cleanly. Alt: Debian (slightly more manual NVIDIA setup), Arch (rolling — too risky for 24/7). | [02](02-host-os-ubuntu.md) |
 | D9 | Model format/picks | **EXL2 quants, deferred** | Finalize at GPU purchase; sizing table in step 10. | [10](10-models.md) |
 | D10 | Optional services | **ComfyUI (SD), Tabby (FIM)** | Add later; mind VRAM contention. | [11](11-optional-comfyui-tabby.md) |
 | D11 | Identity / SSO | **Authentik (OIDC IdP)** | One user/group source for all client types; CF Access federates to it. Alt: Keycloak/Zitadel. | [15](15-identity-sso.md) |
@@ -106,6 +106,13 @@ it's implemented, so changing a decision = editing that step.
 ## Table of contents
 
 Follow in order.
+
+> **Keep deployment specifics out of these files.** This guide is generic — no
+> hardware, IPs, timezone, or version numbers, since those change over time.
+> Record your build's concrete values in a per-deployment companion doc (e.g.
+> `deployments/<host>.md`) and substitute them wherever a step shows a
+> `<placeholder>`. The `deployments/` directory is git-ignored, so your build's
+> IPs, hostnames, and versions stay out of version control.
 
 | Step | Document | What it does |
 |---|---|---|
@@ -149,4 +156,4 @@ duplicated) by the steps above.
 - [ ] 14 Backups + update routine in place
 - [ ] 15 Authentik IdP + Cloudflare Access federation + groups
 - [ ] 16 Workspaces: orchestrator, base images, isolation, scoped LiteLLM keys
-```
+- [ ] 17 Admin UI (OIDC-gated control plane)

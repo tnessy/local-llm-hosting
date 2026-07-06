@@ -77,8 +77,7 @@ After [step 10](10-models.md) fills in real models:
 
 ```bash
 # from the server, exercise the internal endpoint via the litellm pod
-microk8s kubectl exec -n llm-core deploy/litellm -- \
-  curl -s http://inference:8080/v1/models
+microk8s kubectl exec -n llm-core deploy/litellm -- curl -s http://inference:8080/v1/models
 ```
 
 You should see `coder` and `chat` listed. A first chat request triggers a cold

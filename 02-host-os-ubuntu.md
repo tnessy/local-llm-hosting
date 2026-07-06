@@ -1,8 +1,8 @@
-# 02 — Host OS + GPU (Ubuntu Server 26.04 LTS)
+# 02 — Host OS + GPU (Ubuntu Server LTS)
 
 ← [01 Prerequisites](01-prerequisites.md) · Next: [03 Storage](03-storage-ubuntu.md)
 
-> **Overview:** Install Ubuntu Server 24.04 LTS, establish the security baseline (timezone, automatic security patches, SSH hardening, UFW firewall), install Docker as an image builder, and install the NVIDIA driver + Container Toolkit so the GPU is available to the MicroK8s cluster.
+> **Overview:** Install the current Ubuntu Server LTS, establish the security baseline (timezone, automatic security patches, SSH hardening, UFW firewall), install Docker as an image builder, and install the NVIDIA driver + Container Toolkit so the GPU is available to the MicroK8s cluster.
 >
 > **Why:** Every layer above — MicroK8s, LiteLLM, Open WebUI — runs on top of this OS configuration. Firewall rules and automatic patching set here are significantly harder to retrofit once the stack is running.
 >
@@ -10,30 +10,15 @@
 >
 > | Placeholder | What it is | Where to find it |
 > |---|---|---|
-> | `<your/timezone>` | IANA timezone string (e.g. `America/New_York`, `Europe/London`) | `timedatectl list-timezones` |
+> | `<your/timezone>` | IANA timezone — **defaults to `Etc/UTC`**; override only for local time | `timedatectl list-timezones` |
 > | `<your-user>` | Admin Linux username on the server | Chosen during Ubuntu install |
 > | `<server-lan-ip>` | Server's static LAN IPv4 address | Router DHCP reservation, or `ip addr` after first boot |
 > | `<LAN_CIDR>` | Local subnet in CIDR notation (e.g. `192.168.1.0/24`) | Router admin UI |
 > | `<GRAFANA_HOST_IP>` | LAN IP of the Grafana/Prometheus host (step 14 monitoring) | Fill in when step 14 monitoring is configured — leave the UFW rule commented out until then |
 
-> **Locked values for this server (`surtr`)** — baked into the commands below:
->
-> | Placeholder | Value |
-> |---|---|
-> | `<your-user>` | `nss` |
-> | `<your/timezone>` | `America/New_York` |
-> | `<server-lan-ip>` | `192.168.68.55` (DHCP reservation by MAC on the router) |
-> | `<LAN_CIDR>` | `192.168.64.0/19` (derived from `192.168.68.55/19`) |
-> | `<GRAFANA_HOST_IP>` | _deferred to step 14_ |
+## 1. Install Ubuntu Server (LTS)
 
-## 1. Install Ubuntu Server 26.04 LTS
-
-> ✅ **Completed on `surtr`.** Ubuntu Server 26.04 LTS is installed with LVM on
-> `nvme0n1`. Note the installer allocated only a **100 GB root LV**, leaving
-> ~1.7 TB unallocated in `ubuntu-vg`; the model store goes on a **dedicated
-> NVMe being added** — see [step 03](03-storage-ubuntu.md). Reference steps below.
-
-1. Download the **Ubuntu Server 26.04 LTS** ISO and flash it to a USB stick
+1. Download the latest **Ubuntu Server LTS** ISO and flash it to a USB stick
    (e.g. with `dd` or Balena Etcher).
 2. Boot the server from the USB stick.
 3. Accept defaults (no GUI, no snaps beyond the installer). When prompted:
@@ -42,14 +27,48 @@
      [step 03](03-storage-ubuntu.md)).
 4. Reboot, log in over SSH.
 
+### Record your system configuration
+
+Once the system is up, capture its hardware, OS, storage, and network into a
+**per-deployment companion doc** (e.g. `deployments/<host>.md` — git-ignored; see
+the note in the [README](README.md)). You'll substitute these values into the
+`<placeholders>` throughout this and later steps, so record them once now:
+
+```bash
+{
+echo "### HOST";     hostnamectl 2>/dev/null | grep -E 'hostname|Operating System|Kernel|Architecture'
+echo "### USER";     whoami
+echo "### OS";       . /etc/os-release; echo "$PRETTY_NAME  (codename: $VERSION_CODENAME)"
+echo "### TIMEZONE"; timedatectl show -p Timezone --value
+echo "### CPU";      lscpu | grep -E 'Model name|^CPU\(s\)|Thread\(s\) per core|Core\(s\) per socket'
+echo "### RAM";      free -h | awk '/Mem:/{print $2" total"}'
+echo "### GPU";      nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null || lspci | grep -iE 'vga|3d controller'
+echo "### DISKS";    lsblk -d -o NAME,SIZE,MODEL,TYPE | grep -vE 'loop|rom'
+echo "### MOUNTS";   lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT | grep -vE 'loop'
+echo "### LVM";      sudo vgs 2>/dev/null; sudo lvs -o lv_name,vg_name,lv_size 2>/dev/null
+echo "### NETWORK";  ip -4 -o addr show scope global | awk '{print "addr:",$2,$4}'; ip -o -4 route show scope link | awk '{print "subnet:",$1,"dev",$3}'; ip route | awk '/default/{print "gateway:",$3,"dev",$5}'
+echo "### DOCKER";   docker --version 2>/dev/null || echo "not installed"
+} 2>&1 | tee ~/system-config.txt
+```
+
+Paste the output (also saved to `~/system-config.txt`) into your deployment doc.
+It gives you the values behind the placeholders below — `<your-user>` (USER),
+`<your/timezone>` (TIMEZONE), `<server-lan-ip>` + `<LAN_CIDR>` (NETWORK) — and the
+disk/boot layout you'll need to identify the model-store drive in
+[step 03](03-storage-ubuntu.md).
+
 ## 2. Update the system
 
 **Set the system timezone first** — `unattended-upgrades` schedules automatic
-reboots using the system clock; set the correct timezone before configuring it.
+reboots using the system clock, so set the timezone before configuring it. This
+guide defaults to **UTC** — simplest for a server: no daylight-saving shifts, and
+logs line up across machines. Override only if you have a reason to prefer local
+time.
 
 ```bash
-# List available timezones: timedatectl list-timezones | grep <Region>
-sudo timedatectl set-timezone America/New_York
+sudo timedatectl set-timezone Etc/UTC
+# Prefer local time? e.g. sudo timedatectl set-timezone America/New_York
+# List zones with: timedatectl list-timezones
 timedatectl   # verify
 ```
 
@@ -60,12 +79,21 @@ sudo apt update && sudo apt upgrade -y
 sudo reboot
 ```
 
-**Enable automatic security updates:**
+**Enable automatic security updates.** `unattended-upgrades` ships preinstalled on
+Ubuntu Server; this just confirms it's present:
 
 ```bash
 sudo apt install -y unattended-upgrades
+```
 
-sudo tee /etc/apt/apt.conf.d/50unattended-upgrades > /dev/null <<'EOF'
+Open the main config in an editor and **replace its contents** (clear the default
+lines, paste the block below):
+
+```bash
+sudo nano /etc/apt/apt.conf.d/50unattended-upgrades
+```
+
+```
 Unattended-Upgrade::Allowed-Origins {
     "${distro_id}:${distro_codename}-security";
     "${distro_id}ESMApps:${distro_codename}-apps-security";
@@ -78,21 +106,29 @@ Unattended-Upgrade::Package-Blacklist {
     "libnvidia-*";
 };
 
-// Reboot time uses the system timezone set above. Adjust for your low-traffic window.
+// Reboot time uses the system timezone (UTC by default). Adjust for your low-traffic window.
 Unattended-Upgrade::Automatic-Reboot "true";
 Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
 Unattended-Upgrade::Automatic-Reboot-Time "03:00";
 
 Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
 Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
-EOF
+```
 
-sudo tee /etc/apt/apt.conf.d/20auto-upgrades > /dev/null <<'EOF'
+Then open the periodic-schedule config and paste the two lines:
+
+```bash
+sudo nano /etc/apt/apt.conf.d/20auto-upgrades
+```
+
+```
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
-EOF
+```
 
-# Verify the configuration and preview what would be updated
+Verify the configuration and preview what would be updated:
+
+```bash
 sudo unattended-upgrades --dry-run --debug 2>&1 | grep -E "Packages|No packages|Considering"
 ```
 
@@ -113,26 +149,50 @@ down before proceeding.
 
 ```bash
 # On your admin machine: copy your public key to the server
-ssh-copy-id nss@192.168.68.55
+ssh-copy-id <your-user>@<server-lan-ip>
 
 # Then verify you can log in without a password prompt
-ssh nss@192.168.68.55
+ssh <your-user>@<server-lan-ip>
 ```
 
-**Phase 2 — Apply hardened settings:**
+**Phase 2 — Apply hardened settings.**
 
-```
-# /etc/ssh/sshd_config — add or override these lines
-PermitRootLogin no
-PasswordAuthentication no
-```
+> **Don't edit the main `sshd_config` — use a drop-in.** On modern Ubuntu,
+> cloud-init writes `/etc/ssh/sshd_config.d/50-cloud-init.conf` (usually with
+> `PasswordAuthentication yes`), and `Include`d drop-ins are read **first**. sshd
+> uses the *first* value it sees for each keyword, so an edit in the main file is
+> silently overridden. The reliable fix is a drop-in that sorts **before**
+> cloud-init's — a `00-` prefix:
 
 ```bash
-sudo sshd -t                  # validate config syntax
-sudo systemctl restart ssh
+sudo nano /etc/ssh/sshd_config.d/00-hardening.conf
+```
 
-# Verify: key login still works; password login is now rejected
-ssh nss@192.168.68.55
+Paste:
+
+```
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+```
+
+Verify the **effective** config (not just syntax) and restart:
+
+```bash
+sudo sshd -t
+sudo sshd -T | grep -Ei 'passwordauthentication|permitrootlogin|kbdinteractive'
+# All three must report "no". If not, another drop-in in
+# /etc/ssh/sshd_config.d/ sorts before this one — lower its number or fix it there.
+
+sudo systemctl restart ssh
+```
+
+Keep your current SSH session open, and confirm a **new** login works in a
+separate terminal before closing it — key login still works, password login is
+now rejected:
+
+```bash
+ssh <your-user>@<server-lan-ip>
 ```
 
 > `PasswordAuthentication no` only controls SSH logins. `sudo` uses your
@@ -164,13 +224,21 @@ assigns (IPv6 bypasses NAT; without a host firewall the server would be directly
 internet-facing on IPv6).
 
 ```bash
+# Find your LAN subnet in CIDR form — the kernel already knows it (the connected
+# route on your primary NIC). The first field is your <LAN_CIDR>:
+ip -o -4 route show scope link | awk '{print $1, "dev", $3}'
+# e.g. "192.168.1.0/24 dev eth0" (a common home default) — but yours may differ
+# (e.g. a /19 subnet). Use the entry on the NIC that carries your default route.
+```
+
+```bash
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 
 # SSH from your local network. sshd's ListenAddress (step 09 §4) also restricts
 # which interfaces sshd binds to; UFW is the independent network-layer backstop.
-# LAN subnet for surtr (derived from 192.168.68.55/19)
-sudo ufw allow from 192.168.64.0/19 to any port 22 proto tcp
+# Replace <LAN_CIDR> with the subnet found above.
+sudo ufw allow from <LAN_CIDR> to any port 22 proto tcp
 
 # ── Monitoring placeholder (step 14) ──────────────────────────────────────────
 # Promtail pushes logs outbound to Loki — no inbound rule needed.
@@ -225,18 +293,12 @@ card.
 > inference image (and later the workspace/admin-ui images) and push them to the
 > MicroK8s registry.
 
-> ✅ **Docker already installed on `surtr`** — Docker Engine 29.6.1. Skip the
-> repo/install block below.
-
 ```bash
 # Add Docker's official apt repo
 sudo apt install -y ca-certificates curl
 sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-  -o /etc/apt/keyrings/docker.asc
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io
 ```
@@ -255,11 +317,8 @@ runtime for GPU access; this section only installs the host-level toolkit and
 verifies the host driver.
 
 ```bash
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
-  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 sudo apt update
 sudo apt install -y nvidia-container-toolkit
 ```

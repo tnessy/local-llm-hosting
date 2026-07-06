@@ -22,12 +22,6 @@
 | **12–16 GB** | DeepSeek-Coder V3 distilled / ~14B | 7–14B chat | one model resident; moderate ctx |
 | **8–10 GB** | 7–8B coder | 7–8B chat | single model; modest ctx; `ttl` matters |
 
-> **`surtr` (RTX 3080 Ti, 12 GB):** you're in the **12–16 GB** row — one model
-> resident at a time, a ~14B-class coder / 7–14B chat, moderate context. The
-> 24 GB "sweet spot" picks below (Gemma 4 31B, Qwen3.5-27B) **won't fit** at a
-> usable quant. Run the small/fast coder locally; **route frontier models to a
-> hosted API via LiteLLM** ([step 06](06-gateway-litellm.md)).
-
 Confirm exact current picks against a live leaderboard (e.g. Aider's) before
 downloading — the field moves fast. Prefer a higher EXL2 bit-rate (≈5–6 bpw) for
 coding if VRAM allows; code is more quant-sensitive than chat.
@@ -66,8 +60,7 @@ EXL2 models live as folders. Put them under the NVMe model dir from step 03
 (`/srv/models`). With huggingface CLI on the host (or inside the container):
 
 ```bash
-huggingface-cli download <org>/<model-exl2> \
-  --local-dir /srv/models/<Qwen3-Coder-30B-exl2>
+huggingface-cli download <org>/<model-exl2> --local-dir /srv/models/<Qwen3-Coder-30B-exl2>
 ```
 
 The folder name is what you reference as `--model-name`.
@@ -82,9 +75,7 @@ ConfigMap and restart the inference pod (editing the asset file alone has no
 effect on the running pod):
 
 ```bash
-microk8s kubectl create configmap llama-swap-config -n llm-core \
-  --from-file=llama-swap-config.yaml=assets/llama-swap-config.yaml \
-  --dry-run=client -o yaml | microk8s kubectl apply -f -
+microk8s kubectl create configmap llama-swap-config -n llm-core --from-file=llama-swap-config.yaml=assets/llama-swap-config.yaml --dry-run=client -o yaml | microk8s kubectl apply -f -
 microk8s kubectl rollout restart deploy/inference -n llm-core
 ```
 

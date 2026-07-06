@@ -44,17 +44,13 @@ The master key is read from the Kubernetes Secret — it is never a host file or
 env literal:
 
 ```bash
-LITELLM_MASTER_KEY=$(microk8s kubectl get secret litellm-credentials -n llm-core \
-  -o jsonpath='{.data.master-key}' | base64 -d)
+LITELLM_MASTER_KEY=$(microk8s kubectl get secret litellm-credentials -n llm-core -o jsonpath='{.data.master-key}' | base64 -d)
 ```
 
 Open WebUI authenticates to LiteLLM with its own virtual key:
 
 ```bash
-curl -s http://localhost:4000/key/generate \
-  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"models":["coder","chat"],"key_alias":"open-webui"}'
+curl -s http://localhost:4000/key/generate -H "Authorization: Bearer $LITELLM_MASTER_KEY" -H "Content-Type: application/json" -d '{"models":["coder","chat"],"key_alias":"open-webui"}'
 ```
 
 Store the returned key in the `openwebui-credentials` Secret (seeded empty in
@@ -62,8 +58,7 @@ step 04 §3) and restart Open WebUI so it picks it up:
 
 ```bash
 OPENWEBUI_LITELLM_KEY=sk-...        # the "key" value from the response above
-microk8s kubectl patch secret openwebui-credentials -n llm-core \
-  --type merge -p "{\"stringData\":{\"litellm-key\":\"$OPENWEBUI_LITELLM_KEY\"}}"
+microk8s kubectl patch secret openwebui-credentials -n llm-core --type merge -p "{\"stringData\":{\"litellm-key\":\"$OPENWEBUI_LITELLM_KEY\"}}"
 microk8s kubectl rollout restart deploy/open-webui -n llm-core
 ```
 
@@ -72,16 +67,7 @@ microk8s kubectl rollout restart deploy/open-webui -n llm-core
 One key each, with guardrails:
 
 ```bash
-curl -s http://localhost:4000/key/generate \
-  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-        "models": ["coder","chat"],
-        "max_budget": 20,
-        "budget_duration": "30d",
-        "rpm_limit": 60,
-        "key_alias": "alice"
-      }'
+curl -s http://localhost:4000/key/generate -H "Authorization: Bearer $LITELLM_MASTER_KEY" -H "Content-Type: application/json" -d '{"models":["coder","chat"],"max_budget":20,"budget_duration":"30d","rpm_limit":60,"key_alias":"alice"}'
 ```
 
 Give each friend their `sk-...` key (used in [step 12](12-clients.md)).
@@ -105,10 +91,7 @@ All authenticate with the same per-friend virtual key.
 ## Verification
 
 ```bash
-curl -s http://localhost:4000/v1/chat/completions \
-  -H "Authorization: Bearer <a-virtual-key>" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"coder","messages":[{"role":"user","content":"say hi"}]}'
+curl -s http://localhost:4000/v1/chat/completions -H "Authorization: Bearer <a-virtual-key>" -H "Content-Type: application/json" -d '{"model":"coder","messages":[{"role":"user","content":"say hi"}]}'
 ```
 
 Returns a completion (after the cold-load on first hit). A bad/absent key returns
@@ -129,8 +112,7 @@ via `secretKeyRef`.
 > Secrets API. Verify LiteLLM sources its credentials correctly:
 >
 > ```bash
-> microk8s kubectl get pod -n llm-core -l app=litellm \
->   -o jsonpath='{.items[0].spec.containers[0].env}'
+> microk8s kubectl get pod -n llm-core -l app=litellm >   -o jsonpath='{.items[0].spec.containers[0].env}'
 > # Every entry must show valueFrom.secretKeyRef — never a literal value field
 > ```
 

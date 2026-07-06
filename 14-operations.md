@@ -54,16 +54,10 @@ Tar each PVC from inside its running pod and pipe straight into GPG:
 BACKUP_DATE=$(date +%F)
 
 # Open WebUI data (accounts, per-user keys, chats)
-microk8s kubectl exec -n llm-core deploy/open-webui -- tar cz -C /app/backend/data . \
-  | sudo gpg --batch --symmetric --cipher-algo AES256 \
-        --passphrase-file /root/.backup-passphrase \
-        --output /srv/backups/openwebui-${BACKUP_DATE}.tgz.gpg
+microk8s kubectl exec -n llm-core deploy/open-webui -- tar cz -C /app/backend/data . | sudo gpg --batch --symmetric --cipher-algo AES256 --passphrase-file /root/.backup-passphrase --output /srv/backups/openwebui-${BACKUP_DATE}.tgz.gpg
 
 # LiteLLM DB (virtual keys, budgets, spend)
-microk8s kubectl exec -n llm-core deploy/litellm -- tar cz -C /app/db . \
-  | sudo gpg --batch --symmetric --cipher-algo AES256 \
-        --passphrase-file /root/.backup-passphrase \
-        --output /srv/backups/litellm-${BACKUP_DATE}.tgz.gpg
+microk8s kubectl exec -n llm-core deploy/litellm -- tar cz -C /app/db . | sudo gpg --batch --symmetric --cipher-algo AES256 --passphrase-file /root/.backup-passphrase --output /srv/backups/litellm-${BACKUP_DATE}.tgz.gpg
 ```
 
 > Run backups during low activity — the SQLite DB is copied live. For a
@@ -77,8 +71,7 @@ microk8s kubectl exec -n llm-core deploy/litellm -- tar cz -C /app/db . \
 > restore `litellm.db` — without it the whole key table is unverifiable. Extract it
 > and store it in your **password manager**:
 > ```bash
-> microk8s kubectl get secret litellm-credentials -n llm-core \
->   -o jsonpath='{.data.salt-key}' | base64 -d; echo
+> microk8s kubectl get secret litellm-credentials -n llm-core >   -o jsonpath='{.data.salt-key}' | base64 -d; echo
 > ```
 > Keep it off `/srv/backups` — storing the key beside the encrypted archives halves
 > the protection if that disk is stolen.
@@ -94,11 +87,7 @@ sudo find /srv/backups -name '*.tgz.gpg' -mtime +30 -delete
 
 ```bash
 # Restore the DB into the running pod, then restart litellm to reload it cleanly
-sudo gpg --batch --decrypt \
-  --passphrase-file /root/.backup-passphrase \
-  --output - \
-  /srv/backups/litellm-2026-01-15.tgz.gpg \
-  | microk8s kubectl exec -n llm-core -i deploy/litellm -- tar xz -C /app/db
+sudo gpg --batch --decrypt --passphrase-file /root/.backup-passphrase --output - /srv/backups/litellm-2026-01-15.tgz.gpg | microk8s kubectl exec -n llm-core -i deploy/litellm -- tar xz -C /app/db
 
 microk8s kubectl rollout restart deploy/litellm -n llm-core
 ```
@@ -129,19 +118,15 @@ microk8s kubectl rollout restart deploy/litellm -n llm-core
   cd /opt/home-llm
 
   # 1. Record current digests pulled into the cluster
-  microk8s ctr images ls | grep -E 'litellm|open-webui|cloudflared' \
-    | tee /tmp/digests-before.txt
+  microk8s ctr images ls | grep -E 'litellm|open-webui|cloudflared' | tee /tmp/digests-before.txt
 
   # 2. Pull the moving tags fresh
-  for img in ghcr.io/berriai/litellm:main-stable \
-             ghcr.io/open-webui/open-webui:main \
-             cloudflare/cloudflared:latest ; do
+  for img in ghcr.io/berriai/litellm:main-stable ghcr.io/open-webui/open-webui:main cloudflare/cloudflared:latest ; do
     microk8s ctr images pull "$img"
   done
 
   # 3. See what actually changed
-  microk8s ctr images ls | grep -E 'litellm|open-webui|cloudflared' \
-    | diff /tmp/digests-before.txt -
+  microk8s ctr images ls | grep -E 'litellm|open-webui|cloudflared' | diff /tmp/digests-before.txt -
   ```
 
   For each image whose digest changed, review the upstream changelog before
@@ -187,8 +172,7 @@ microk8s kubectl rollout restart deploy/litellm -n llm-core
   2. List every active key via LiteLLM `/key/list` and record the aliases.
   3. Patch `salt-key` in the `litellm-credentials` Secret and restart LiteLLM:
      ```bash
-     microk8s kubectl patch secret litellm-credentials -n llm-core --type merge \
-       -p "{\"stringData\":{\"salt-key\":\"$(openssl rand -hex 32)\"}}"
+     microk8s kubectl patch secret litellm-credentials -n llm-core --type merge -p "{\"stringData\":{\"salt-key\":\"$(openssl rand -hex 32)\"}}"
      microk8s kubectl rollout restart deploy/litellm -n llm-core
      ```
   4. Re-mint a replacement key for every friend and send them the new values.
@@ -226,8 +210,7 @@ On the Grafana machine (`<grafana-host-lan-ip>`), create the directory layout an
 
 ```bash
 sudo mkdir -p /opt/monitoring /etc/monitoring
-openssl rand -hex 32 \
-  | sudo install -m 400 -o root -g root /dev/stdin /etc/monitoring/grafana_admin_password
+openssl rand -hex 32 | sudo install -m 400 -o root -g root /dev/stdin /etc/monitoring/grafana_admin_password
 ```
 
 **Copy the admin password to your password manager now** — you will need it every time you open the Grafana UI.
@@ -369,31 +352,13 @@ microk8s enable helm3
 microk8s helm3 repo add aquasecurity https://aquasecurity.github.io/helm-charts/
 microk8s helm3 repo update
 
-microk8s helm3 install trivy-operator aquasecurity/trivy-operator \
-  --namespace trivy-system \
-  --create-namespace \
-  --set metrics.enabled=true \
-  --set trivyOperator.scanJobTimeout=10m0s
+microk8s helm3 install trivy-operator aquasecurity/trivy-operator --namespace trivy-system --create-namespace --set metrics.enabled=true --set trivyOperator.scanJobTimeout=10m0s
 ```
 
 Expose the metrics endpoint as a NodePort so the Prometheus on the monitoring host can scrape it:
 
 ```bash
-microk8s kubectl apply -f - <<'EOF'
-apiVersion: v1
-kind: Service
-metadata:
-  name: trivy-metrics-nodeport
-  namespace: trivy-system
-spec:
-  type: NodePort
-  selector:
-    app.kubernetes.io/name: trivy-operator
-  ports:
-  - port: 80
-    targetPort: 8080
-    nodePort: 32000
-EOF
+microk8s kubectl apply -f assets/k8s/monitoring/trivy-metrics-nodeport.yaml
 ```
 
 Port 32000 is reachable at `<llm-server-lan-ip>:32000` from any machine on the LAN. If you want to restrict it to the monitoring host only, add a UFW rule on the LLM server:
@@ -413,44 +378,7 @@ microk8s kubectl describe vulnerabilityreport <name> -n llm-core
 **Host OS scan CronJob** — scans the Ubuntu host filesystem nightly at 02:00. The `hostPath: /` mount is an intentional privileged exception for the security scanning role. `automountServiceAccountToken: false` removes all cluster API access from the pod.
 
 ```bash
-microk8s kubectl apply -f - <<'EOF'
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: trivy-host-scanner
-  namespace: trivy-system
-automountServiceAccountToken: false
----
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: trivy-host-scan
-  namespace: trivy-system
-spec:
-  schedule: "0 2 * * *"
-  concurrencyPolicy: Forbid
-  jobTemplate:
-    spec:
-      backoffLimit: 0
-      template:
-        spec:
-          serviceAccountName: trivy-host-scanner
-          automountServiceAccountToken: false
-          restartPolicy: Never
-          containers:
-          - name: trivy
-            image: aquasec/trivy:0.48.0   # pin to digest
-            args: [fs, --severity, HIGH,CRITICAL, --format, table, /host]
-            volumeMounts:
-            - name: host-root
-              mountPath: /host
-              readOnly: true
-          volumes:
-          - name: host-root
-            hostPath:
-              path: /
-              type: Directory
-EOF
+microk8s kubectl apply -f assets/k8s/monitoring/trivy-host-scan.yaml
 ```
 
 Trivy output goes to the CronJob pod's stdout. Promtail ships it to Loki automatically from `/var/log/pods/trivy-system_trivy-host-scan-*/trivy/*.log`.
@@ -458,8 +386,7 @@ Trivy output goes to the CronJob pod's stdout. Promtail ships it to Loki automat
 Trigger a manual run to test the full pipeline end to end:
 
 ```bash
-microk8s kubectl create job trivy-host-scan-manual \
-  --from=cronjob/trivy-host-scan -n trivy-system
+microk8s kubectl create job trivy-host-scan-manual --from=cronjob/trivy-host-scan -n trivy-system
 microk8s kubectl logs -l job-name=trivy-host-scan-manual -n trivy-system --follow
 ```
 
@@ -516,14 +443,10 @@ microk8s kubectl logs -n monitoring ds/promtail 2>&1 | grep -i "send\|error"
 microk8s kubectl get vulnerabilityreports -A
 
 # Monitoring host: confirm Loki received logs from the LLM server
-curl -s 'http://localhost:3100/loki/api/v1/query_range' \
-  --data-urlencode 'query={container="litellm"}' \
-  --data-urlencode 'limit=1' \
-  | jq '.data.result[0].values[-1]'
+curl -s 'http://localhost:3100/loki/api/v1/query_range' --data-urlencode 'query={container="litellm"}' --data-urlencode 'limit=1' | jq '.data.result[0].values[-1]'
 
 # Monitoring host: confirm Prometheus is scraping Trivy metrics
-curl -s 'http://localhost:9090/api/v1/query?query=trivy_image_vulnerabilities' \
-  | jq '.data.result | length'
+curl -s 'http://localhost:9090/api/v1/query?query=trivy_image_vulnerabilities' | jq '.data.result | length'
 ```
 
 **Quick on-server checks (not a substitute for the above):**

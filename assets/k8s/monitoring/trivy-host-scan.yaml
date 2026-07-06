@@ -1,0 +1,40 @@
+# Nightly Trivy filesystem scan of the Ubuntu host (02:00). The `hostPath: /` mount
+# is an intentional privileged exception for the security-scanning role;
+# `automountServiceAccountToken: false` removes all cluster API access from the pod.
+# Applied in step 14 §3. Output goes to the pod's stdout → Promtail → Loki.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trivy-host-scanner
+  namespace: trivy-system
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: trivy-host-scan
+  namespace: trivy-system
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          serviceAccountName: trivy-host-scanner
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          containers:
+          - name: trivy
+            image: aquasec/trivy:0.48.0   # pin to digest — step 04 §6
+            args: [fs, --severity, HIGH,CRITICAL, --format, table, /host]
+            volumeMounts:
+            - name: host-root
+              mountPath: /host
+              readOnly: true
+          volumes:
+          - name: host-root
+            hostPath:
+              path: /
+              type: Directory

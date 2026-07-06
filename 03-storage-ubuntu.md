@@ -6,12 +6,11 @@
 >
 > **Why:** EXL2 model weights range from 10–100+ GB each. Keeping them on a separate NVMe protects the OS disk from exhaustion and gives full sequential read throughput during model loads — critical when swapping between models on a single GPU.
 
-> ⚠️ **`surtr` boots from `nvme0n1` — your OS lives on that disk.** The commands
-> in this step **format an entire drive**; running them against `nvme0n1` will
-> destroy your system. This step is for the **dedicated model-store NVMe you are
-> adding**. Do **not** proceed until the new drive is installed and you have
-> positively identified its device name (it will be `nvme1n1` or similar —
-> **never** `nvme0n1`).
+> ⚠️ **This step formats an entire drive.** Your OS lives on the boot NVMe (e.g.
+> `nvme0n1`); running these commands against it will destroy your system. This
+> step targets a **dedicated model-store NVMe**. Do **not** proceed until the new
+> drive is installed and you have positively identified its device name (it will
+> be `nvme1n1` or similar — **never** your boot disk).
 
 ## 1. Identify the NVMe device
 

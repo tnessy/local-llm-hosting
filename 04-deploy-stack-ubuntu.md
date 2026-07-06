@@ -35,8 +35,9 @@ All commands below assume `cd /opt/home-llm`. Manifests live in
 ## 1. Install MicroK8s + add-ons
 
 ```bash
-# Pin to a stable channel so snap auto-refresh can't jump minor versions
-sudo snap install microk8s --classic --channel=1.31/stable
+# Pin to a stable channel so snap auto-refresh can't jump minor versions.
+# Replace <minor> with the current MicroK8s stable minor (e.g. `snap info microk8s`).
+sudo snap install microk8s --classic --channel=<minor>/stable
 
 # Run kubectl without sudo
 sudo usermod -aG microk8s "$USER"
@@ -91,11 +92,22 @@ host filesystem access. Enable `secretbox` (XSalsa20 + Poly1305) so every Secret
 value is encrypted **before** it is written — do this **before creating any
 Secret in §3**.
 
-```bash
-# 32-byte key, base64-encoded (Kubernetes decodes it at load time)
-ENC_KEY=$(openssl rand -base64 32)
+Generate a 32-byte base64 key and print it (copy it to your password manager now
+— you'll also paste it into the file in the next step):
 
-sudo tee /var/snap/microk8s/current/args/encryption-config.yaml > /dev/null <<EOF
+```bash
+openssl rand -base64 32
+```
+
+Open the encryption config in an editor:
+
+```bash
+sudo nano /var/snap/microk8s/current/args/encryption-config.yaml
+```
+
+Paste this, replacing `<ENC_KEY>` with the value printed above:
+
+```
 apiVersion: apiserver.config.k8s.io/v1
 kind: EncryptionConfiguration
 resources:
@@ -105,14 +117,18 @@ resources:
   - secretbox:
       keys:
       - name: key1
-        secret: ${ENC_KEY}
+        secret: <ENC_KEY>          # ← paste the base64 key printed above
   - identity: {}
-EOF
+```
+
+Lock down the file, register it with the apiserver, and restart:
+
+```bash
 sudo chmod 400 /var/snap/microk8s/current/args/encryption-config.yaml
 sudo chown root:root /var/snap/microk8s/current/args/encryption-config.yaml
 
-echo '--encryption-provider-config=/var/snap/microk8s/current/args/encryption-config.yaml' \
-  | sudo tee -a /var/snap/microk8s/current/args/kube-apiserver > /dev/null
+# Appends a single line to the apiserver args file
+echo '--encryption-provider-config=/var/snap/microk8s/current/args/encryption-config.yaml' | sudo tee -a /var/snap/microk8s/current/args/kube-apiserver > /dev/null
 
 sudo snap restart microk8s
 microk8s kubectl get nodes            # Ready = apiserver is back up
@@ -137,23 +153,17 @@ from the pod spec by anything with `pods:get`.
 # Record the master key — you need it to mint friend keys in step 06.
 LITELLM_MASTER_KEY="sk-$(openssl rand -hex 32)"
 echo "LITELLM_MASTER_KEY=$LITELLM_MASTER_KEY   # copy to your password manager"
-microk8s kubectl create secret generic litellm-credentials -n llm-core \
-  --from-literal=master-key="$LITELLM_MASTER_KEY" \
-  --from-literal=salt-key="$(openssl rand -hex 32)"
+microk8s kubectl create secret generic litellm-credentials -n llm-core --from-literal=master-key="$LITELLM_MASTER_KEY" --from-literal=salt-key="$(openssl rand -hex 32)"
 
 # Internal key TabbyAPI requires; shared by inference (server) and litellm (client)
-microk8s kubectl create secret generic tabby-credentials -n llm-core \
-  --from-literal=api-key="$(openssl rand -hex 32)"
+microk8s kubectl create secret generic tabby-credentials -n llm-core --from-literal=api-key="$(openssl rand -hex 32)"
 
 # Open WebUI: session-signing secret now; the litellm-key is minted in step 06,
 # so seed it empty and patch it there.
-microk8s kubectl create secret generic openwebui-credentials -n llm-core \
-  --from-literal=secret-key="$(openssl rand -hex 32)" \
-  --from-literal=litellm-key=""
+microk8s kubectl create secret generic openwebui-credentials -n llm-core --from-literal=secret-key="$(openssl rand -hex 32)" --from-literal=litellm-key=""
 
 # Cloudflare tunnel token (step 01)
-microk8s kubectl create secret generic cloudflared-credentials -n llm-platform \
-  --from-literal=token="<CF_TUNNEL_TOKEN>"
+microk8s kubectl create secret generic cloudflared-credentials -n llm-platform --from-literal=token="<CF_TUNNEL_TOKEN>"
 ```
 
 > **`salt-key` is permanent.** Changing it after setup silently invalidates every
@@ -167,11 +177,9 @@ microk8s kubectl create secret generic cloudflared-credentials -n llm-platform \
 files (edit those files in later steps, then re-apply — see §7 note):
 
 ```bash
-microk8s kubectl create configmap litellm-config -n llm-core \
-  --from-file=litellm-config.yaml=assets/litellm-config.yaml
+microk8s kubectl create configmap litellm-config -n llm-core --from-file=litellm-config.yaml=assets/litellm-config.yaml
 
-microk8s kubectl create configmap llama-swap-config -n llm-core \
-  --from-file=llama-swap-config.yaml=assets/llama-swap-config.yaml
+microk8s kubectl create configmap llama-swap-config -n llm-core --from-file=llama-swap-config.yaml=assets/llama-swap-config.yaml
 ```
 
 ## 5. Build the inference image and push it to the registry
@@ -184,9 +192,7 @@ SHA-256 and (optionally) the TabbyAPI base digest:
 
 ```bash
 LLAMA_SWAP_VERSION=v201   # must match ARG LLAMA_SWAP_VERSION in assets/inference/Dockerfile
-curl -fsSL \
-  "https://github.com/mostlygeek/llama-swap/releases/download/${LLAMA_SWAP_VERSION}/llama-swap_linux_amd64" \
-  | sha256sum
+curl -fsSL "https://github.com/mostlygeek/llama-swap/releases/download/${LLAMA_SWAP_VERSION}/llama-swap_linux_amd64" | sha256sum
 ```
 
 Build and push:
@@ -195,9 +201,7 @@ Build and push:
 cd /opt/home-llm/assets/inference
 
 # Builds run as `sudo docker` — no one is in the docker group (step 02 §6)
-sudo docker build \
-  --build-arg LLAMA_SWAP_SHA256=<paste-hash-here> \
-  -t localhost:32000/home-llm-inference:latest .
+sudo docker build --build-arg LLAMA_SWAP_SHA256=<paste-hash-here> -t localhost:32000/home-llm-inference:latest .
 
 sudo docker push localhost:32000/home-llm-inference:latest
 cd /opt/home-llm
@@ -214,10 +218,7 @@ Pull the third-party images into MicroK8s and record their digests, plus the
 digest of the inference image you just pushed:
 
 ```bash
-for img in \
-  ghcr.io/berriai/litellm:main-stable \
-  ghcr.io/open-webui/open-webui:main \
-  cloudflare/cloudflared:latest ; do
+for img in ghcr.io/berriai/litellm:main-stable ghcr.io/open-webui/open-webui:main cloudflare/cloudflared:latest ; do
   microk8s ctr images pull "docker.io/library/$img" 2>/dev/null || microk8s ctr images pull "$img"
 done
 
@@ -246,11 +247,7 @@ Install it as the Gateway API controller in `llm-platform`:
 microk8s helm3 repo add traefik https://helm.traefik.io/traefik
 microk8s helm3 repo update
 
-microk8s helm3 install traefik traefik/traefik \
-  --namespace llm-platform \
-  --set providers.kubernetesGateway.enabled=true \
-  --set providers.kubernetesCRD.enabled=true \
-  --set service.type=ClusterIP   # cloudflared reaches it in-cluster; no NodePort
+microk8s helm3 install traefik traefik/traefik --namespace llm-platform --set providers.kubernetesGateway.enabled=true --set providers.kubernetesCRD.enabled=true --set service.type=ClusterIP   # cloudflared reaches it in-cluster; no NodePort
 ```
 
 Before applying the NetworkPolicies, confirm the k8s API server ClusterIP matches

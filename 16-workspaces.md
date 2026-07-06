@@ -373,8 +373,7 @@ availability and updates the HTTPRoute atomically.
    error — do not allow workspace creation while isolation may be unenforced.
    ```python
    ds = k8s.apps_v1.read_namespaced_daemon_set("calico-node", "kube-system")
-   assert ds.status.number_ready == ds.status.desired_number_scheduled, \
-       "Calico not fully ready — workspace creation blocked"
+   assert ds.status.number_ready == ds.status.desired_number_scheduled, "Calico not fully ready — workspace creation blocked"
    ```
 1. **First provisioning for a user** (`sub` not in workspaces table):
    - Derive proposed `hostname_slug` from `preferred_username` (sanitise to
@@ -530,16 +529,12 @@ spec:
         - -c
         - |
           while true; do
-            DESIRED=$(kubectl get daemonset calico-node -n kube-system \
-              -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null)
-            READY=$(kubectl get daemonset calico-node -n kube-system \
-              -o jsonpath='{.status.numberReady}' 2>/dev/null)
+            DESIRED=$(kubectl get daemonset calico-node -n kube-system -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null)
+            READY=$(kubectl get daemonset calico-node -n kube-system -o jsonpath='{.status.numberReady}' 2>/dev/null)
             if [ -n "$DESIRED" ] && [ "$READY" -lt "$DESIRED" ]; then
               echo "$(date -u) Calico degraded ($READY/$DESIRED) — suspending workspace pods"
-              for ns in $(kubectl get ns --no-headers \
-                  -o custom-columns=':metadata.name' | grep '^ws-'); do
-                kubectl scale deployment --all --replicas=0 -n "$ns" 2>/dev/null \
-                  && echo "$(date -u) Suspended $ns"
+              for ns in $(kubectl get ns --no-headers -o custom-columns=':metadata.name' | grep '^ws-'); do
+                kubectl scale deployment --all --replicas=0 -n "$ns" 2>/dev/null && echo "$(date -u) Suspended $ns"
               done
             fi
             sleep 5
