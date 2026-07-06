@@ -164,9 +164,9 @@ microk8s kubectl rollout restart deploy/litellm -n llm-core
   cd /opt/home-llm/assets/inference
   # If bumping LLAMA_SWAP_VERSION, recompute its SHA-256 (see step 04 §5).
   # Update the FROM digest + LLAMA_SWAP_SHA256 in the Dockerfile, then:
-  docker build --build-arg LLAMA_SWAP_SHA256=<hash> -t localhost:32000/home-llm-inference:latest .
-  docker push localhost:32000/home-llm-inference:latest
-  docker inspect --format='{{index .RepoDigests 0}}' localhost:32000/home-llm-inference:latest
+  sudo docker build --build-arg LLAMA_SWAP_SHA256=<hash> -t localhost:32000/home-llm-inference:latest .
+  sudo docker push localhost:32000/home-llm-inference:latest
+  sudo docker inspect --format='{{index .RepoDigests 0}}' localhost:32000/home-llm-inference:latest
   # Set the new @sha256 in assets/k8s/llm-core/inference.yaml, then:
   microk8s kubectl apply -f /opt/home-llm/assets/k8s/llm-core/inference.yaml
   microk8s kubectl rollout restart deploy/inference -n llm-core
@@ -214,7 +214,7 @@ Monitoring host (192.168.x.x) ────────────────�
 ───────┬─────────────────────────────┬──────────────────────────
        │ ← Promtail pushes logs       │ ← Prometheus scrapes NodePort
 LLM server (192.168.x.x) ──────────────────────────────────────
-│  Promtail       ships Docker + pod logs → Loki                 │
+│  Promtail       ships cluster pod logs  → Loki                 │
 │  Trivy Operator continuous image CVE scan → metrics :32000     │
 │  Trivy CronJob  nightly host OS scan → stdout → Loki           │
 ────────────────────────────────────────────────────────────────
@@ -344,74 +344,20 @@ Bring up the stack:
 cd /opt/monitoring && sudo docker compose up -d
 ```
 
-### 2. Promtail on the LLM server
+### 2. Promtail on the LLM server (DaemonSet)
 
-Run Promtail in its own Docker Compose project — separate from the `home-llm` stack so it is not part of what it monitors.
+Promtail runs as a MicroK8s **DaemonSet** in a dedicated `monitoring` namespace,
+tailing every pod's logs from `/var/log/pods` and shipping them to the external
+Loki. The scrape config sets the `namespace` and `container` labels the alert
+rules key on (e.g. `{container="litellm"}`). Full manifest:
+[`assets/k8s/monitoring/promtail.yaml`](assets/k8s/monitoring/promtail.yaml).
 
-```bash
-sudo mkdir -p /opt/promtail
-```
-
-Create `/opt/promtail/docker-compose.yml`:
-
-```yaml
-name: promtail
-
-services:
-  promtail:
-    image: grafana/promtail:2.9.0   # pin to digest
-    container_name: promtail
-    restart: unless-stopped
-    # Runs as root to read /var/log/pods (root-owned); all mounts read-only.
-    user: "0:0"
-    volumes:
-      - /var/log/pods:/var/log/pods:ro   # MicroK8s pod logs (all cluster workloads)
-      - promtail-pos:/tmp
-      - ./promtail-config.yaml:/etc/promtail/config.yaml:ro
-    command: -config.file=/etc/promtail/config.yaml
-
-volumes:
-  promtail-pos:
-```
-
-Create `/opt/promtail/promtail-config.yaml` — replace `<grafana-host-lan-ip>`:
-
-```yaml
-server:
-  http_listen_port: 9080
-  grpc_listen_port: 0
-
-positions:
-  filename: /tmp/positions.yaml
-
-clients:
-  - url: http://<grafana-host-lan-ip>:3100/loki/api/v1/push
-
-scrape_configs:
-  # MicroK8s pod logs — all cluster workloads (litellm, open-webui, inference,
-  # cloudflared, traefik, authentik, workspaces). The `container` label set below
-  # is what the alert rules key on (e.g. {container="litellm"}).
-  - job_name: kubernetes
-    static_configs:
-      - targets: [localhost]
-        labels:
-          job: kubernetes
-          __path__: /var/log/pods/**/*.log
-    pipeline_stages:
-      - cri: {}
-    relabel_configs:
-      - source_labels: [__path__]
-        regex: '/var/log/pods/([^_/]+)_.+/([^/]+)/.*'
-        target_label: namespace
-        replacement: '$1'
-      - source_labels: [__path__]
-        regex: '/var/log/pods/[^/]+/([^/]+)/.*'
-        target_label: container
-        replacement: '$1'
-```
+Point it at your monitoring host and apply:
 
 ```bash
-cd /opt/promtail && sudo docker compose up -d
+# Set the external Loki URL in the ConfigMap, then deploy
+sed -i 's/<grafana-host-lan-ip>/192.168.x.x/' assets/k8s/monitoring/promtail.yaml
+microk8s kubectl apply -f assets/k8s/monitoring/promtail.yaml
 ```
 
 ### 3. Trivy Operator (MicroK8s)
@@ -564,7 +510,7 @@ Set up a contact point (Alerting → Contact points) to deliver alerts by email 
 
 ```bash
 # LLM server: confirm Promtail is connecting and sending
-sudo docker logs promtail 2>&1 | grep -i "send\|error"
+microk8s kubectl logs -n monitoring ds/promtail 2>&1 | grep -i "send\|error"
 
 # LLM server: list Trivy CVE scan results
 microk8s kubectl get vulnerabilityreports -A
@@ -594,7 +540,7 @@ curl -s 'http://localhost:9090/api/v1/query?query=trivy_image_vulnerabilities' \
 | 524 from Cloudflare | Long non-streamed response | Ensure streaming; for SD use ComfyUI queue API |
 | 401 on API | Bad/expired virtual key | Re-issue (step 06) |
 | Engine has no models | llama-swap placeholders not filled | Step 10 |
-| GPU not seen in container | Driver/compose GPU stanza | Steps 02/04 |
+| GPU not seen in pod | Driver / GPU device plugin | Steps 02/04 |
 | Slow first response | Cold model load (expected) | Raise `ttl`; keep model warm |
 
 ## Changing a decision later

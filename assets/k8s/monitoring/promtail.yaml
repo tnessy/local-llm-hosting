@@ -1,0 +1,106 @@
+# Promtail as a MicroK8s DaemonSet: tails every pod's logs from /var/log/pods and
+# ships them to the EXTERNAL Loki (on the separate monitoring host). Runs in its
+# own `monitoring` namespace. Replace <grafana-host-lan-ip> with your monitoring
+# host's LAN IP before applying.
+#
+# The monitoring namespace has no default-deny, so egress to the LAN Loki is
+# permitted. No k8s API access is needed — logs are read from hostPath, not the
+# API — so the ServiceAccount carries no RBAC.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: promtail
+  namespace: monitoring
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: monitoring
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+    positions:
+      filename: /run/promtail/positions.yaml
+    clients:
+      - url: http://<grafana-host-lan-ip>:3100/loki/api/v1/push
+    scrape_configs:
+      # MicroK8s pod logs — all cluster workloads (litellm, open-webui, inference,
+      # cloudflared, traefik, authentik, workspaces). The `container` label set
+      # below is what the alert rules key on (e.g. {container="litellm"}).
+      - job_name: kubernetes
+        static_configs:
+          - targets: [localhost]
+            labels:
+              job: kubernetes
+              __path__: /var/log/pods/**/*.log
+        pipeline_stages:
+          - cri: {}
+        relabel_configs:
+          - source_labels: [__path__]
+            regex: '/var/log/pods/([^_/]+)_.+/([^/]+)/.*'
+            target_label: namespace
+            replacement: '$1'
+          - source_labels: [__path__]
+            regex: '/var/log/pods/[^/]+/([^/]+)/.*'
+            target_label: container
+            replacement: '$1'
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: monitoring
+  labels:
+    app: promtail
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      serviceAccountName: promtail
+      securityContext:
+        runAsUser: 0                 # read root-owned /var/log/pods
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: promtail
+        image: grafana/promtail:2.9.0   # pin to digest — step 04 §6
+        args: ["-config.file=/etc/promtail/promtail.yaml"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: config
+          mountPath: /etc/promtail
+          readOnly: true
+        - name: pods
+          mountPath: /var/log/pods
+          readOnly: true
+        - name: positions
+          mountPath: /run/promtail
+      volumes:
+      - name: config
+        configMap:
+          name: promtail-config
+      - name: pods
+        hostPath:
+          path: /var/log/pods
+          type: Directory
+      - name: positions
+        hostPath:
+          path: /var/lib/promtail
+          type: DirectoryOrCreate

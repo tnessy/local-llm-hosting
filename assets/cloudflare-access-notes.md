@@ -10,14 +10,15 @@ Zero Trust → Networks → Tunnels → `home-llm` → **Published application r
 
 | Public hostname | Service (inside the tunnel) |
 |---|---|
-| `llm.domain.com` | `http://open-webui:8080` |
-| `api.domain.com` | `http://litellm:4000` |
-| `admin.domain.com` | `http://admin-ui:8080` |
-| `auth.domain.com` | `http://authentik-server:9000` |
+| `llm.domain.com` | `http://traefik.llm-platform:80` |
+| `api.domain.com` | `http://traefik.llm-platform:80` |
+| `admin.domain.com` | `http://traefik.llm-platform:80` |
+| `auth.domain.com` | `http://traefik.llm-platform:80` |
 
-> The service hostnames are the Docker service names because `cloudflared` runs
-> on the same `frontend` network. In the MicroK8s phase, cloudflared routes to
-> Traefik which dispatches by hostname.
+> Every hostname points at the same target — Traefik. cloudflared forwards each
+> tunnel request to `traefik.llm-platform:80`, and Traefik dispatches by `Host`
+> header to the right backend via the Gateway API (step 04). Add `admin.` and
+> `auth.` only after their HTTPRoutes exist (steps 17 and 15).
 
 ## 2. Access application — UI (`llm.domain.com`)
 

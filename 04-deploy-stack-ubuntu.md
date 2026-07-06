@@ -194,11 +194,12 @@ Build and push:
 ```bash
 cd /opt/home-llm/assets/inference
 
-docker build \
+# Builds run as `sudo docker` — no one is in the docker group (step 02 §6)
+sudo docker build \
   --build-arg LLAMA_SWAP_SHA256=<paste-hash-here> \
   -t localhost:32000/home-llm-inference:latest .
 
-docker push localhost:32000/home-llm-inference:latest
+sudo docker push localhost:32000/home-llm-inference:latest
 cd /opt/home-llm
 ```
 
@@ -223,7 +224,7 @@ done
 # Third-party digests
 microk8s ctr images ls | grep -E 'litellm|open-webui|cloudflared'
 # Inference image digest (from the push in §5)
-docker inspect --format='{{index .RepoDigests 0}}' localhost:32000/home-llm-inference:latest
+sudo docker inspect --format='{{index .RepoDigests 0}}' localhost:32000/home-llm-inference:latest
 ```
 
 Append `@sha256:<digest>` to each `image:` line in the manifests:

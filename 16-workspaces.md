@@ -575,6 +575,17 @@ microk8s kubectl logs -l app=calico-watchdog -n kube-system --tail=5
 
 ## 6. Workspace pod spec
 
+Build the workspace base image from
+[`assets/workspace-base/Dockerfile`](assets/workspace-base/Dockerfile) and push it
+to the MicroK8s registry — same flow as the inference image
+([step 04 §5](04-deploy-stack-ubuntu.md)):
+
+```bash
+cd /opt/home-llm/assets/workspace-base
+sudo docker build -t localhost:32000/ws-python:latest .
+sudo docker push localhost:32000/ws-python:latest
+```
+
 Key fields — adapt to your base image and quota tier:
 
 ```yaml
@@ -603,7 +614,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: code-server
-        image: your-registry/ws-python:latest
+        image: localhost:32000/ws-python:latest   # pin to digest — step 04 §6
         ports:
         - containerPort: 8080
         env:

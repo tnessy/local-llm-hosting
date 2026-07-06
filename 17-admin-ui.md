@@ -245,9 +245,9 @@ spec:
 
 | Secret | Used for | Stored as |
 |---|---|---|
-| `LITELLM_MASTER_KEY` | Friend key management, model config, spend queries | k8s Secret / Docker secret |
-| Authentik admin API token | User creation, group assignment, deactivation | k8s Secret / Docker secret |
-| Open WebUI admin credentials | Account management | k8s Secret / Docker secret |
+| `LITELLM_MASTER_KEY` | Friend key management, model config, spend queries | k8s Secret (`secretKeyRef`) |
+| Authentik admin API token | User creation, group assignment, deactivation | k8s Secret (`secretKeyRef`) |
+| Open WebUI admin credentials | Account management | k8s Secret (`secretKeyRef`) |
 
 The Admin UI does **not** hold the orchestrator API credential — in-cluster
 network isolation is the access control for the orchestrator. If a token is

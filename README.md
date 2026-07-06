@@ -110,7 +110,7 @@ Follow in order.
 | Step | Document | What it does |
 |---|---|---|
 | 01 | [Prerequisites](01-prerequisites.md) | Domain on Cloudflare, accounts, hardware checklist |
-| 02 | [Host OS + GPU (Ubuntu)](02-host-os-ubuntu.md) | Install Ubuntu Server, NVIDIA driver, Docker + container toolkit |
+| 02 | [Host OS + GPU (Ubuntu)](02-host-os-ubuntu.md) | Install Ubuntu Server, NVIDIA driver + container toolkit, Docker (image builder) |
 | 03 | [Storage (Ubuntu)](03-storage-ubuntu.md) | Format NVMe, mount at `/srv/models` |
 | 04 | [Bootstrap MicroK8s + deploy core stack](04-deploy-stack-ubuntu.md) | Install MicroK8s + add-ons, deploy inference/litellm/open-webui/cloudflared/Traefik |
 | 05 | [Inference: TabbyAPI + llama-swap](05-inference-tabbyapi-llamaswap.md) | Model-swap engine config |

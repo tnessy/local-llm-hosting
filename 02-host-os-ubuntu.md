@@ -2,9 +2,9 @@
 
 ← [01 Prerequisites](01-prerequisites.md) · Next: [03 Storage](03-storage-ubuntu.md)
 
-> **Overview:** Install Ubuntu Server 24.04 LTS, establish the security baseline (timezone, automatic security patches, SSH hardening, UFW firewall, dedicated `llm-svc` service account), and install the NVIDIA driver and Container Toolkit so the GPU is visible to containers.
+> **Overview:** Install Ubuntu Server 24.04 LTS, establish the security baseline (timezone, automatic security patches, SSH hardening, UFW firewall), install Docker as an image builder, and install the NVIDIA driver + Container Toolkit so the GPU is available to the MicroK8s cluster.
 >
-> **Why:** Every layer above — Docker, LiteLLM, Open WebUI, MicroK8s — runs on top of this OS configuration. Firewall rules, service account isolation, and automatic patching set here are significantly harder to retrofit once the stack is running.
+> **Why:** Every layer above — MicroK8s, LiteLLM, Open WebUI — runs on top of this OS configuration. Firewall rules and automatic patching set here are significantly harder to retrofit once the stack is running.
 >
 > **Placeholders to gather before starting:**
 >
@@ -192,13 +192,11 @@ sudo ufw status verbose
 The Tailscale interface rule (`ufw allow in on tailscale0`) is added in
 [step 09 §1](09-connectivity-tailscale.md) once Tailscale is running.
 
-> **Docker and UFW:** Docker inserts iptables rules directly into the kernel,
-> bypassing UFW for any published `ports:` binding. Here Docker is only an image
-> builder (step 04 §5) and runs no port-publishing containers — the core stack is
-> MicroK8s, whose Services are ClusterIP (no host ports) reached via the outbound
-> tunnel. Any NodePort exception (e.g. Trivy metrics, step 14) gets an explicit
-> UFW rule. §7 still sets `"ip": "127.0.0.1"` as Docker's default bind, so any
-> future Docker service defaults to loopback.
+> **Docker and UFW:** Docker can insert iptables rules that bypass UFW for
+> published `ports:` bindings — but here Docker is only an image builder and runs
+> **no containers**, so it publishes no ports. The core stack is MicroK8s, whose
+> Services are ClusterIP (no host ports) reached via the outbound tunnel; any
+> NodePort exception (e.g. Trivy metrics, step 14) gets an explicit UFW rule.
 
 ## 5. Install the NVIDIA driver
 
@@ -222,10 +220,13 @@ card.
 
 ## 6. Install Docker Engine
 
-> ✅ **Docker already installed on `surtr`** — Docker Engine 29.6.1 + Compose
-> v5.3.0. Skip the repo/install block below. You still need the **`llm-svc`
-> service account** at the end of this section — check with `id llm-svc` and
-> create it (the two `useradd`/`usermod` lines) if it doesn't exist.
+> **Docker here is only an image builder.** The stack runs as MicroK8s pods
+> (step 04), not Docker containers. Docker is used solely to `docker build` the
+> inference image (and later the workspace/admin-ui images) and push them to the
+> MicroK8s registry.
+
+> ✅ **Docker already installed on `surtr`** — Docker Engine 29.6.1. Skip the
+> repo/install block below.
 
 ```bash
 # Add Docker's official apt repo
@@ -237,21 +238,21 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
   https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
   | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-
-# Create a dedicated service account to own and run the Docker stack.
-# docker group membership is equivalent to passwordless root — any member can
-# mount the host filesystem via `docker run -v /:/host` and escape to a root shell.
-# The interactive admin account must never join the docker group.
-# llm-svc owns the stack and is the only docker group member;
-# all ad-hoc docker commands from the admin account use `sudo docker`.
-sudo useradd -r -s /usr/sbin/nologin llm-svc
-sudo usermod -aG docker llm-svc
+sudo apt install -y docker-ce docker-ce-cli containerd.io
 ```
+
+> **No one joins the `docker` group.** Membership is equivalent to passwordless
+> root — any member can `docker run -v /:/host` and escape to a host root shell.
+> Since the admin account already uses `sudo` throughout this guide, run image
+> builds as `sudo docker build …` (step 04 §5). No dedicated Docker service
+> account is needed now that the stack runs in Kubernetes.
 
 ## 7. Install the NVIDIA Container Toolkit
 
-This lets containers access the GPU via `docker run --gpus`:
+The GPU is consumed by the MicroK8s cluster, not by Docker. MicroK8s's `gpu`
+add-on ([step 04 §1](04-deploy-stack-ubuntu.md)) configures its own containerd
+runtime for GPU access; this section only installs the host-level toolkit and
+verifies the host driver.
 
 ```bash
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
@@ -261,33 +262,20 @@ curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-contai
   | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 sudo apt update
 sudo apt install -y nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-
-# Set loopback as the default bind address for Docker published ports (§4).
-# Docker bypasses UFW for ports: bindings; this prevents accidental LAN exposure
-# from future services that omit an explicit host IP in their ports: entries.
-# nvidia-ctk just wrote daemon.json with the nvidia runtime — merge in the ip key:
-sudo python3 -c "
-import json
-p = '/etc/docker/daemon.json'
-cfg = json.load(open(p))
-cfg['ip'] = '127.0.0.1'
-json.dump(cfg, open(p, 'w'), indent=2)
-"
-
-sudo systemctl restart docker
 ```
+
+> No `nvidia-ctk runtime configure --runtime=docker` is needed — the stack runs
+> no GPU workloads under Docker. GPU-in-cluster is configured and verified later:
+> `microk8s enable gpu` (step 04 §1) and `kubectl exec … nvidia-smi` (step 04 §9).
 
 ## Verification
 
 ```bash
-# GPU visible on host
+# GPU visible on the host (driver working)
 nvidia-smi
-
-# GPU visible inside a container
-sudo docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
 ```
 
-Both should list the GPU and VRAM.
+Lists the GPU, driver version, and VRAM. GPU visibility **inside the cluster** is
+verified in [step 04 §9](04-deploy-stack-ubuntu.md) once MicroK8s is running.
 
 → Continue to [03 — Storage](03-storage-ubuntu.md).
