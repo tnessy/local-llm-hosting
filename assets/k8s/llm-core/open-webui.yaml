@@ -56,6 +56,14 @@ spec:
           value: "true"
         - name: ENABLE_SIGNUP
           value: "false"              # accounts are created manually (step 07)
+        - name: ENABLE_PERSISTENT_CONFIG
+          value: "false"              # env vars are authoritative every boot, not just
+                                      # first boot. Without this, Open WebUI seeds config
+                                      # (incl. the OpenAI connection) from env ONCE, then
+                                      # reads its DB — so the litellm-key minted in step 06
+                                      # (after this pod first boots in step 04) never takes
+                                      # effect and no models appear. Also keeps ENABLE_SIGNUP
+                                      # env-enforced so it can't be persisted back on.
         - name: WEBUI_NAME
           value: Home LLM
         securityContext:

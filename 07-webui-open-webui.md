@@ -54,6 +54,25 @@ llama-swap). If empty:
   `http://litellm.llm-core:4000/v1`,
 - models exist (after [step 05](05-inference-tabbyapi-llamaswap.md)).
 
+> **Why the manifest sets `ENABLE_PERSISTENT_CONFIG=false`:** Open WebUI seeds
+> config (including the OpenAI connection) from env vars on *first boot*, then
+> reads its DB thereafter. This pod first boots in [step 04](04-deploy-stack-ubuntu.md)
+> — **before** the `litellm-key` is minted in [step 06](06-gateway-litellm.md) — so
+> without this flag it would persist an empty connection and show **no models** even
+> after the key is set. `false` makes the env (from the `openwebui-credentials`
+> Secret) authoritative on every boot. Verify the backend independently of the UI:
+>
+> ```bash
+> microk8s kubectl exec -n llm-core deploy/open-webui -- python3 -c "import urllib.request,os; k=os.environ['OPENAI_API_KEY']; print(urllib.request.urlopen(urllib.request.Request('http://litellm.llm-core:4000/v1/models', headers={'Authorization':'Bearer '+k})).read().decode())"
+> # Lists coder/chat => backend path is fine; empty UI then means a config/DB issue.
+> ```
+
+> **First-boot egress:** on first start Open WebUI downloads its RAG embedding
+> model (`all-MiniLM-L6-v2`) from HuggingFace and caches it to its PVC. The
+> `open-webui-policy` NetworkPolicy ([step 04](04-deploy-stack-ubuntu.md)) allows
+> HTTPS egress to the public internet (RFC1918 excluded) for exactly this. Without
+> it the pod hangs at `Waiting for application startup` and never binds `:8080`.
+
 ## 5. (Optional) image generation
 
 If you add ComfyUI ([step 10](10-optional-comfyui-tabby.md)): **Admin Panel →
