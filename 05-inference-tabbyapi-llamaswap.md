@@ -167,6 +167,26 @@ If tool-calls are flaky: raise the EXL2 bit-rate, increase context, or switch to
 a stronger coding model — all without touching client config (LiteLLM abstracts
 the backend).
 
+## 6. Token counts for metering (`usage`)
+
+TabbyAPI computes token counts but only **includes** the OpenAI `usage` object in a
+response when the request carries `stream_options: {include_usage: true}` — and,
+unlike OpenAI, it applies that gate to **non-streaming** calls too. There is **no
+server-side, CLI, or `config.yml` option** to change this; it is per-request only.
+Omit the flag and every response comes back with `usage: null`, which LiteLLM
+records as **0 tokens** — so the per-key budgets and rate limits in
+[step 06](06-gateway-litellm.md) can't meter local models.
+
+The fix lives in LiteLLM, not the engine: [`assets/litellm-config.yaml`](assets/litellm-config.yaml)
+sets `extra_body.stream_options.include_usage: true` on each local model, so the
+flag rides along on every LiteLLM → TabbyAPI request. `extra_body` is passed raw
+upstream, so `drop_params: true` won't strip it. It's already enabled in this
+repo's config — no action needed unless you add another local model, in which case
+copy the `extra_body` block onto it.
+
+> This applies to TabbyAPI-backed (local) models only. Hosted providers report
+> `usage` natively.
+
 ## Verification
 
 Test through LiteLLM from the host — that exercises the real client path
@@ -190,5 +210,11 @@ curl -s http://localhost:4000/v1/chat/completions -H "Authorization: Bearer $LIT
 A completion means the model loaded and the full path works. (LiteLLM's
 `/v1/models` only lists *configured* models, so it isn't proof the engine loaded —
 the completion is.)
+
+Pipe the response through `python3 -m json.tool` and confirm the `usage` block is
+**populated** (`prompt_tokens`/`completion_tokens` > 0), not `null` — that verifies
+the `extra_body` metering fix from §6 is in effect end-to-end. If `usage` is null,
+the `stream_options.include_usage` flag isn't reaching TabbyAPI (check
+`litellm-config.yaml`).
 
 → Continue to [06 — LiteLLM gateway](06-gateway-litellm.md).

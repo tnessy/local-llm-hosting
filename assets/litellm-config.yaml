@@ -12,11 +12,23 @@ model_list:
       model: openai/coder          # "openai/<name>" => OpenAI-compatible upstream
       api_base: http://inference:8080/v1
       api_key: os.environ/TABBY_API_KEY
+      # TabbyAPI only emits the `usage` object (token counts) when the request
+      # carries stream_options.include_usage — and it applies that gate to
+      # NON-streaming calls too (non-standard). There is no server/CLI option, so
+      # we inject it here via extra_body (passed raw upstream, unaffected by
+      # drop_params) on every request, so LiteLLM's spend/budget metering sees
+      # real token counts for local models. See step 05.
+      extra_body:
+        stream_options:
+          include_usage: true
   - model_name: chat
     litellm_params:
       model: openai/chat
       api_base: http://inference:8080/v1
       api_key: os.environ/TABBY_API_KEY
+      extra_body:
+        stream_options:
+          include_usage: true
 
 litellm_settings:
   drop_params: true                # tolerate client params the backend ignores
