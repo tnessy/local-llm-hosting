@@ -17,13 +17,23 @@
 > solely to `docker build` the inference image and push it to the MicroK8s
 > registry.
 
-## 0. Stage the repo on the server
+## 0. Get the repo onto the server
 
-Copy this repository to the server so the manifests and config assets are local.
+Clone this repository to `/opt/home-llm` so the manifests and config assets are
+local. Create the directory owned by your user **first**, so the clone runs with
+your own git credentials rather than root's (matters for a private repo):
 
 ```bash
 sudo mkdir -p /opt/home-llm
-sudo cp -r . /opt/home-llm/          # run from your checkout, or git clone into /opt/home-llm
+sudo chown "$USER":"$USER" /opt/home-llm
+git clone <your-repo-url> /opt/home-llm
+cd /opt/home-llm
+```
+
+Working from a local checkout instead of a remote? Copy it in place instead:
+
+```bash
+sudo cp -r . /opt/home-llm/
 sudo chown -R "$USER":"$USER" /opt/home-llm
 cd /opt/home-llm
 ```
@@ -45,16 +55,24 @@ newgrp microk8s                       # or log out/in
 microk8s status --wait-ready
 ```
 
-Enable the add-ons the stack depends on:
+Enable the add-ons the stack depends on. **Calico is already MicroK8s's default
+CNI** (running out of the box — there is no `enable calico`); it enforces the
+NetworkPolicies this stack relies on. The rest are off by default:
 
 ```bash
-microk8s enable dns
-microk8s enable calico              # CNI with NetworkPolicy enforcement
+microk8s enable dns                 # CoreDNS (usually already enabled)
+microk8s enable rbac                # ENFORCE RBAC — without this the orchestrator least-privilege model (step 16) is a no-op
 microk8s enable gpu                 # NVIDIA device plugin (for llm-core inference)
 microk8s enable hostpath-storage    # PVC provisioner for litellm-db + openwebui-data
 microk8s enable helm3               # Authentik (step 15)
 microk8s enable registry            # local image registry at localhost:32000 (§5)
 ```
+
+> **Why `rbac` matters:** MicroK8s runs the apiserver with authorization mode
+> `AlwaysAllow` until you enable `rbac`. The two-tier orchestrator RBAC in step 16
+> (and the C-3/C-4 fixes that keep a compromised orchestrator out of `llm-core`)
+> only take effect once RBAC is actually enforced. Enable it now, before any
+> workload is deployed.
 
 **Wait for Calico to be fully ready before deploying anything.** Kubernetes
 silently accepts NetworkPolicy resources whether or not a CNI is enforcing them —
@@ -75,9 +93,11 @@ microk8s kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.co
 
 > **Pin snap auto-refresh to a maintenance window.** Uncontrolled snap updates can
 > restart `calico-node` during working hours, briefly dropping NetworkPolicy
-> enforcement. Move updates to a low-traffic window:
+> enforcement. Move updates to a low-traffic window (`refresh.timer` is the current
+> snapd key; `refresh.schedule` is deprecated):
 > ```bash
-> sudo snap set system refresh.schedule="tue,01:00-03:00"
+> sudo snap set system refresh.timer="tue,01:00-03:00"
+> snap refresh --time      # verify: shows the timer + next scheduled refresh
 > ```
 >
 > **API server access** is restricted to Tailscale in [step 09](09-connectivity-tailscale.md).
@@ -150,10 +170,13 @@ from the pod spec by anything with `pods:get`.
 
 ```bash
 # LiteLLM admin (master) + virtual-key salt. Master key must start with "sk-".
-# Record the master key — you need it to mint friend keys in step 06.
+# Both are printed so you can record them — the master key mints friend keys
+# (step 06); the salt key is PERMANENT and required to restore litellm.db (step 14).
 LITELLM_MASTER_KEY="sk-$(openssl rand -hex 32)"
-echo "LITELLM_MASTER_KEY=$LITELLM_MASTER_KEY   # copy to your password manager"
-microk8s kubectl create secret generic litellm-credentials -n llm-core --from-literal=master-key="$LITELLM_MASTER_KEY" --from-literal=salt-key="$(openssl rand -hex 32)"
+LITELLM_SALT_KEY="$(openssl rand -hex 32)"
+echo "LITELLM_MASTER_KEY=$LITELLM_MASTER_KEY"   # copy to your password manager
+echo "LITELLM_SALT_KEY=$LITELLM_SALT_KEY"       # copy to your password manager — PERMANENT
+microk8s kubectl create secret generic litellm-credentials -n llm-core --from-literal=master-key="$LITELLM_MASTER_KEY" --from-literal=salt-key="$LITELLM_SALT_KEY"
 
 # Internal key TabbyAPI requires; shared by inference (server) and litellm (client)
 microk8s kubectl create secret generic tabby-credentials -n llm-core --from-literal=api-key="$(openssl rand -hex 32)"
@@ -162,8 +185,12 @@ microk8s kubectl create secret generic tabby-credentials -n llm-core --from-lite
 # so seed it empty and patch it there.
 microk8s kubectl create secret generic openwebui-credentials -n llm-core --from-literal=secret-key="$(openssl rand -hex 32)" --from-literal=litellm-key=""
 
-# Cloudflare tunnel token (step 01)
-microk8s kubectl create secret generic cloudflared-credentials -n llm-platform --from-literal=token="<CF_TUNNEL_TOKEN>"
+# Cloudflare tunnel token (step 01). Read it via a SILENT prompt and pipe it in on
+# stdin — the token never lands in shell history or /proc/<pid>/cmdline. printf '%s'
+# avoids a trailing newline (which would break cloudflared auth).
+read -rsp "Paste the CF tunnel token, then press Enter: " CF_TOKEN; echo
+printf '%s' "$CF_TOKEN" | microk8s kubectl create secret generic cloudflared-credentials -n llm-platform --from-file=token=/dev/stdin
+unset CF_TOKEN
 ```
 
 > **`salt-key` is permanent.** Changing it after setup silently invalidates every
@@ -191,8 +218,10 @@ First get the integrity values the Dockerfile requires — the llama-swap binary
 SHA-256 and (optionally) the TabbyAPI base digest:
 
 ```bash
-LLAMA_SWAP_VERSION=v201   # must match ARG LLAMA_SWAP_VERSION in assets/inference/Dockerfile
-curl -fsSL "https://github.com/mostlygeek/llama-swap/releases/download/${LLAMA_SWAP_VERSION}/llama-swap_linux_amd64" | sha256sum
+LLAMA_SWAP_VERSION=v235   # must match ARG LLAMA_SWAP_VERSION in assets/inference/Dockerfile
+# The release filename drops the leading "v" (v235 → llama-swap_235_...). The SHA-256
+# for the linux_amd64 tarball is the first column of the matching checksums line:
+curl -fsSL "https://github.com/mostlygeek/llama-swap/releases/download/${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION#v}_checksums.txt" | grep linux_amd64.tar.gz
 ```
 
 Build and push:

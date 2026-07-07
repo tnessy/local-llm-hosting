@@ -11,18 +11,22 @@
 # Then replace :latest below with :latest@sha256:<digest>
 FROM ghcr.io/theroyallab/tabbyapi:latest
 
-# --- Install llama-swap (single static Go binary) ---------------------------
-ARG LLAMA_SWAP_VERSION=v201
-# Set this to the SHA-256 of the llama-swap binary for LLAMA_SWAP_VERSION (step 04 §4).
-# Get the hash:
-#   curl -fsSL https://github.com/mostlygeek/llama-swap/releases/download/${LLAMA_SWAP_VERSION}/llama-swap_linux_amd64 | sha256sum
-# Then either set the default below or pass --build-arg LLAMA_SWAP_SHA256=<hash> at build time.
+# --- Install llama-swap (shipped as a release tarball) ----------------------
+ARG LLAMA_SWAP_VERSION=v235
+# SHA-256 of the linux_amd64 TARBALL for LLAMA_SWAP_VERSION (step 04 §5). The
+# release filename drops the leading "v" (e.g. v235 → llama-swap_235_...). Get the
+# hash from the release checksums file:
+#   curl -fsSL https://github.com/mostlygeek/llama-swap/releases/download/${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION#v}_checksums.txt | grep linux_amd64.tar.gz
+# Then set the default below or pass --build-arg LLAMA_SWAP_SHA256=<hash> at build time.
 ARG LLAMA_SWAP_SHA256
 RUN test -n "${LLAMA_SWAP_SHA256}" \
-      || { echo 'ERROR: set LLAMA_SWAP_SHA256 in the Dockerfile ARG or pass --build-arg (step 04 §4)'; exit 1; } \
-    && wget -qO /usr/local/bin/llama-swap \
-      "https://github.com/mostlygeek/llama-swap/releases/download/${LLAMA_SWAP_VERSION}/llama-swap_linux_amd64" \
-    && printf '%s  /usr/local/bin/llama-swap\n' "${LLAMA_SWAP_SHA256}" | sha256sum -c \
+      || { echo 'ERROR: set LLAMA_SWAP_SHA256 (step 04 §5)'; exit 1; } \
+    && ver="${LLAMA_SWAP_VERSION#v}" \
+    && wget -qO /tmp/llama-swap.tgz \
+      "https://github.com/mostlygeek/llama-swap/releases/download/${LLAMA_SWAP_VERSION}/llama-swap_${ver}_linux_amd64.tar.gz" \
+    && printf '%s  /tmp/llama-swap.tgz\n' "${LLAMA_SWAP_SHA256}" | sha256sum -c \
+    && tar -xzf /tmp/llama-swap.tgz -C /usr/local/bin llama-swap \
+    && rm -f /tmp/llama-swap.tgz \
     && chmod +x /usr/local/bin/llama-swap
 
 # llama-swap config is mounted at /app/config.yaml from the llama-swap-config
