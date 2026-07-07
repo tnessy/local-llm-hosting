@@ -22,15 +22,16 @@ spec:
       labels:
         app: litellm
     spec:
+      # The litellm-database image bundles the Prisma CLI + engines in /root/.cache
+      # (so DB migrations run offline, without a runtime Node/npm download), which
+      # means it runs as root. It stays hardened via cap-drop + no-privilege-
+      # escalation + seccomp + NetworkPolicy isolation.
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000                 # so the mounted PVC is writable by uid 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: litellm
-        image: ghcr.io/berriai/litellm:main-stable   # pin to digest — step 04 §6
+        image: ghcr.io/berriai/litellm-database:main-stable   # pin to digest — step 04 §6
         args: ["--config", "/app/config.yaml", "--port", "4000"]
         ports:
         - containerPort: 4000
@@ -59,6 +60,10 @@ spec:
         # never appears as a literal in the manifest or pod spec.
         - name: DATABASE_URL
           value: "postgresql://litellm:$(POSTGRES_PASSWORD)@litellm-postgres:5432/litellm"
+        # Prisma reads its bundled engines from $HOME/.cache — point HOME at /root
+        # where the litellm-database image pre-caches them.
+        - name: HOME
+          value: /root
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

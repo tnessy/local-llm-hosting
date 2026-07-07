@@ -33,8 +33,14 @@ spec:
       labels:
         app: litellm-postgres
     spec:
+      # Run as the image's postgres user (uid/gid 999) so the entrypoint skips its
+      # root-only chown/chmod path — which fails under cap_drop: ALL. fsGroup makes
+      # the mounted PVC group-writable by 999.
       securityContext:
-        fsGroup: 999          # postgres group in the official image
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
       containers:

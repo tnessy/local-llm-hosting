@@ -89,6 +89,23 @@ spec:
     ports:
     - port: 5432
       protocol: TCP
+  # Public internet on HTTPS — LiteLLM routes some models to hosted APIs, and on
+  # startup Prisma downloads its migration engine and fetches the model cost map.
+  # Excludes RFC1918 / CGNAT / link-local / loopback so litellm can't reach the LAN
+  # or cluster-internal services through this rule.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 100.64.0.0/10
+        - 169.254.0.0/16
+        - 127.0.0.0/8
+    ports:
+    - port: 443
+      protocol: TCP
   - to:
     - namespaceSelector:
         matchLabels:
