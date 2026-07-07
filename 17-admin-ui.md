@@ -130,9 +130,10 @@ spec:
   egress:
   # k8s API server — namespace/deployment/NetworkPolicy management
   # Verify ClusterIP: kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}'
+  # (MicroK8s default is 10.152.183.1; kubeadm default is 10.96.0.1)
   - to:
     - ipBlock:
-        cidr: 10.96.0.1/32
+        cidr: 10.152.183.1/32
     ports:
     - port: 443
       protocol: TCP

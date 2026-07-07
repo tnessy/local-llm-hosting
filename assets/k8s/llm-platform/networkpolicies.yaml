@@ -7,7 +7,7 @@
 # (15 and 16) once those workloads exist.
 #
 # Before applying, confirm the k8s API server ClusterIP matches the traefik-policy
-# egress ipBlock (10.96.0.1 is the MicroK8s default):
+# egress ipBlock (MicroK8s default is 10.152.183.1; kubeadm default is 10.96.0.1):
 #   microk8s kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}'
 
 # cloudflared: no ingress (outbound tunnel); egress to Cloudflare edge + traefik + dns.
@@ -115,7 +115,7 @@ spec:
   # k8s API server — Traefik watches Gateways, HTTPRoutes, and Services
   - to:
     - ipBlock:
-        cidr: 10.96.0.1/32
+        cidr: 10.152.183.1/32
     ports:
     - port: 443
       protocol: TCP

@@ -269,22 +269,43 @@ Append `@sha256:<digest>` to each `image:` line in the manifests:
 
 ## 7. Install Traefik (Gateway API ingress)
 
-cloudflared forwards all tunnel traffic to Traefik, which routes by Host header.
-Install it as the Gateway API controller in `llm-platform`:
+cloudflared forwards all tunnel traffic to Traefik, which routes by Host header
+via the Gateway API. First install the upstream **Gateway API CRDs** — the
+`Gateway` / `HTTPRoute` / `GatewayClass` kinds are standard k8s-sigs resources,
+**not** bundled with Traefik or MicroK8s. Without them, the Gateway and HTTPRoutes
+in §8 fail with `no matches for kind "Gateway"`:
+
+```bash
+# Check github.com/kubernetes-sigs/gateway-api/releases for the current release.
+# (Traefik's chart currently bundles these too, but will stop in a future major
+# version — installing them ourselves is the forward-compatible path.)
+microk8s kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
+```
+
+Then install Traefik as the Gateway API controller in `llm-platform` (it reaches
+Traefik in-cluster, so ClusterIP — no NodePort):
 
 ```bash
 microk8s helm3 repo add traefik https://helm.traefik.io/traefik
 microk8s helm3 repo update
-
-microk8s helm3 install traefik traefik/traefik --namespace llm-platform --set providers.kubernetesGateway.enabled=true --set providers.kubernetesCRD.enabled=true --set service.type=ClusterIP   # cloudflared reaches it in-cluster; no NodePort
+microk8s helm3 install traefik traefik/traefik --namespace llm-platform --set providers.kubernetesGateway.enabled=true --set providers.kubernetesCRD.enabled=true --set service.type=ClusterIP
 ```
 
-Before applying the NetworkPolicies, confirm the k8s API server ClusterIP matches
-the `traefik-policy` egress rule (`10.96.0.1` is the MicroK8s default):
+Verify the CRDs are registered, the Traefik pod is running, and a `traefik`
+GatewayClass exists (our `core-gateway` references `gatewayClassName: traefik`):
+
+```bash
+microk8s kubectl get crd | grep gateway.networking.k8s.io
+microk8s kubectl get pods -n llm-platform -l app.kubernetes.io/name=traefik
+microk8s kubectl get gatewayclass
+```
+
+Before applying the NetworkPolicies in §8, confirm the k8s API server ClusterIP
+matches the `traefik-policy` egress rule (MicroK8s default is `10.152.183.1`):
 
 ```bash
 microk8s kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}{"\n"}'
-# If not 10.96.0.1, update the ipBlock in assets/k8s/llm-platform/networkpolicies.yaml
+# If different, update the ipBlock in assets/k8s/llm-platform/networkpolicies.yaml
 ```
 
 ## 8. Deploy the core stack
