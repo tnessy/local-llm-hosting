@@ -93,6 +93,7 @@ it's implemented, so changing a decision = editing that step.
 | D10 | Optional services | **ComfyUI (SD), Tabby (FIM)** | Add later; mind VRAM contention. | [10](10-optional-comfyui-tabby.md) |
 | D11 | Identity / SSO | **Authentik (OIDC IdP)** | One user/group source for all client types; CF Access federates to it. Alt: Keycloak/Zitadel. | [14](14-identity-sso.md) |
 | D12 | Workspaces (3rd client) | **MicroK8s + custom orchestrator + hardened pods, browser IDE** | On-demand dev envs; GPU-free; workspace pods reach LiteLLM in-cluster (no public hop); NetworkPolicy enforces isolation. Ingress via Traefik + Gateway API (ingress-nginx EOL March 2026). Alt (reference): Coder, Kasm. | [15](15-workspaces.md) |
+| D13 | Frontier / hosted-model access | **Per-user bring-your-own (BYO) provider keys — no shared global key** | Each user supplies their **own** hosted-provider token (Anthropic / OpenAI / OpenRouter …) in Open WebUI or with their API calls; the host never configures one global key all users share — avoids fronting the frontier bill and the blast radius of a shared secret. Both the `chat` (Open WebUI) and `api` (LiteLLM) paths route to hosted models **only with the caller's own key**; local models stay keyless behind LiteLLM. **Deferred — local-only for now.** | planned: [06](06-gateway-litellm.md) / [07](07-webui-open-webui.md) |
 
 ### How to change a decision later
 
