@@ -1,6 +1,6 @@
-# 07 — API gateway: LiteLLM
+# 06 — API gateway: LiteLLM
 
-← [06 Models](06-models.md) · Next: [08 Open WebUI](08-webui-open-webui.md)
+← [05 Inference & models](05-inference-tabbyapi-llamaswap.md) · Next: [07 Open WebUI](07-webui-open-webui.md)
 
 > **Overview:** Configure LiteLLM as the single API gateway — issue a virtual key per friend with spend limits and model allowlists, enable dialect translation so Codex (Responses API) and Claude Code (Anthropic Messages) route to the OpenAI-compatible inference engine, and wire up the LiteLLM admin UI.
 >
@@ -19,8 +19,8 @@ Config: [`assets/litellm-config.yaml`](assets/litellm-config.yaml).
 > **Security:** LiteLLM is never exposed for admin use. All admin operations
 > (`/key/*`, `/user/*`, `/model/info`, `/health`) run through a local
 > `kubectl port-forward`, which is gated by the Tailscale-restricted kube-apiserver
-> ([step 09](09-connectivity-tailscale.md)). These paths are also blocked at the
-> Cloudflare WAF on `api.domain.com` — see [step 10](10-connectivity-cloudflare.md).
+> ([step 08](08-connectivity-tailscale.md)). These paths are also blocked at the
+> Cloudflare WAF on `api.domain.com` — see [step 09](09-connectivity-cloudflare.md).
 > Never run admin calls against the public hostname.
 
 ## 1. Confirm it's running
@@ -70,13 +70,13 @@ One key each, with guardrails:
 curl -s http://localhost:4000/key/generate -H "Authorization: Bearer $LITELLM_MASTER_KEY" -H "Content-Type: application/json" -d '{"models":["coder","chat"],"max_budget":20,"budget_duration":"30d","rpm_limit":60,"key_alias":"alice"}'
 ```
 
-Give each friend their `sk-...` key (used in [step 12](12-clients.md)).
+Give each friend their `sk-...` key (used in [step 11](11-clients.md)).
 
 - **Revoke:** `POST /key/delete` with `{"keys":["sk-..."]}`.
 - **Inspect spend:** `GET /key/info?key=sk-...`.
 - **Allowlist:** `models` restricts which models that key may call.
 
-## 4. Dialect endpoints (used by clients in step 12)
+## 4. Dialect endpoints (used by clients in step 11)
 
 LiteLLM exposes, on `https://api.domain.com`:
 
@@ -107,7 +107,7 @@ comes from the `litellm-config` ConfigMap; the master key, salt key, and
 via `secretKeyRef`.
 
 > **Credentials must use `secretKeyRef` — never literal `value:` fields.** The
-> orchestrator (step 16) has cluster-wide `pods: get/list/watch`; any credential
+> orchestrator (step 15) has cluster-wide `pods: get/list/watch`; any credential
 > stored as a plain env var is readable from the pod spec without touching the
 > Secrets API. Verify LiteLLM sources its credentials correctly:
 >
@@ -116,4 +116,4 @@ via `secretKeyRef`.
 > # Every entry must show valueFrom.secretKeyRef — never a literal value field
 > ```
 
-→ Continue to [08 — Open WebUI](08-webui-open-webui.md).
+→ Continue to [07 — Open WebUI](07-webui-open-webui.md).

@@ -26,23 +26,23 @@
 
    The token becomes the `cloudflared-credentials` Kubernetes Secret in
    [step 04](04-deploy-stack-ubuntu.md). Never commit it or run it anywhere.
-   Public hostnames are added later in [step 10](10-connectivity-cloudflare.md).
+   Public hostnames are added later in [step 09](09-connectivity-cloudflare.md).
 4. **Tailscale account.** Sign up (free Personal plan is fine) at tailscale.com.
    You'll install it on the server and your own devices in
-   [step 09](09-connectivity-tailscale.md).
+   [step 08](08-connectivity-tailscale.md).
 
 ## Plan your two subdomains
 
 - `llm.domain.com` → the chat UI (Open WebUI).
 - `api.domain.com` → the API gateway (LiteLLM).
 
-No DNS records needed yet — the tunnel creates them in step 10.
+No DNS records needed yet — the tunnel creates them in step 09.
 
 ## Hardware checklist
 
 | Component | Guidance |
 |---|---|
-| **GPU (NVIDIA)** | The one component that gates everything. See the VRAM tiers in [step 06](06-models.md). ExLlamaV2 shines on RTX 3090/4090/5090-class cards. |
+| **GPU (NVIDIA)** | The one component that gates everything. See the VRAM tiers in [step 05](05-inference-tabbyapi-llamaswap.md). ExLlamaV2 shines on RTX 3090/4090/5090-class cards. |
 | **System RAM** | ≥ VRAM, ideally 1.5–2× (32–64 GB). |
 | **NVMe SSD** | 500 GB–1 TB+ for the EXL2 model store (models are large; they add up). Fast disk = faster model swaps. |
 | **PSU** | Size for GPU TDP (≈350–450 W for 3090/4090) plus headroom. |
@@ -71,7 +71,7 @@ known provenance. They move weekly; re-check before buying.
 
 **How to choose:**
 
-- **Default / lowest risk** → **1× RTX 4090.** 24 GB tier (step 06), proven, lowest
+- **Default / lowest risk** → **1× RTX 4090.** 24 GB tier (step 05), proven, lowest
   power, no Blackwell-support risk.
 - **Want speed + headroom** → **1× RTX 5090** for ~$800 more — 32 GB and ~1.8× the
   decode bandwidth lets you keep `coder` + `chat` resident. Confirm CUDA/ExLlamaV2
@@ -84,7 +84,7 @@ known provenance. They move weekly; re-check before buying.
   single card to the same capacity.
 
 > GPU not bought yet? Continue with OS/storage/stack setup; you'll pull models
-> and finalize tuning in [step 06](06-models.md) once the card is in.
+> and finalize tuning in [step 05](05-inference-tabbyapi-llamaswap.md) once the card is in.
 
 ## OS path (D8)
 

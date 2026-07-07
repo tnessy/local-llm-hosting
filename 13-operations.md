@@ -1,6 +1,6 @@
-# 14 — Operations
+# 13 — Operations
 
-← [13 Verification](13-verification.md) · [Back to README](README.md)
+← [12 Verification](12-verification.md) · [Back to README](README.md)
 
 > **Overview:** Routine maintenance reference — scheduled backups, OS and container update procedures, credential rotation hygiene, centralized off-server monitoring with Grafana + Loki, CVE scanning with Trivy Operator, and a common-issues table.
 >
@@ -459,9 +459,9 @@ curl -s 'http://localhost:9090/api/v1/query?query=trivy_image_vulnerabilities' |
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Model "dumb"/forgets context | `--max-seq-len` too small | Raise it (step 06), watch VRAM |
+| Model "dumb"/forgets context | `--max-seq-len` too small | Raise it (step 05), watch VRAM |
 | 524 from Cloudflare | Long non-streamed response | Ensure streaming; for SD use ComfyUI queue API |
-| 401 on API | Bad/expired virtual key | Re-issue (step 07) |
+| 401 on API | Bad/expired virtual key | Re-issue (step 06) |
 | Engine has no models | llama-swap placeholders not filled | Step 10 |
 | GPU not seen in pod | Driver / GPU device plugin | Steps 02/04 |
 | Slow first response | Cold model load (expected) | Raise `ttl`; keep model warm |

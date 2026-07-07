@@ -1,10 +1,10 @@
 # 04 — Bootstrap MicroK8s + deploy the core stack (Ubuntu)
 
-← [03 Storage](03-storage-ubuntu.md) · Next: [05 Inference](05-inference-tabbyapi-llamaswap.md)
+← [03 Storage](03-storage-ubuntu.md) · Next: [05 Inference & models](05-inference-tabbyapi-llamaswap.md)
 
 > **Overview:** Install MicroK8s and its add-ons (Calico, GPU, hostpath storage, Helm, registry), turn on Secrets encryption at rest, then deploy the model-serving core — `inference`, `litellm`, `open-webui`, and `cloudflared` — as Kubernetes manifests in the `llm-core` and `llm-platform` namespaces.
 >
-> **Why:** MicroK8s is the single platform for the whole stack. Running the core here from day one — rather than on Docker Compose and migrating later — means Secrets, NetworkPolicy isolation, and the per-user workspace plane (step 16) all share one substrate. Kubernetes restarts crashed pods and reschedules on reboot, so no systemd unit is needed.
+> **Why:** MicroK8s is the single platform for the whole stack. Running the core here from day one — rather than on Docker Compose and migrating later — means Secrets, NetworkPolicy isolation, and the per-user workspace plane (step 15) all share one substrate. Kubernetes restarts crashed pods and reschedules on reboot, so no systemd unit is needed.
 >
 > **Placeholders to gather before starting:**
 >
@@ -61,15 +61,15 @@ NetworkPolicies this stack relies on. The rest are off by default:
 
 ```bash
 microk8s enable dns                 # CoreDNS (usually already enabled)
-microk8s enable rbac                # ENFORCE RBAC — without this the orchestrator least-privilege model (step 16) is a no-op
+microk8s enable rbac                # ENFORCE RBAC — without this the orchestrator least-privilege model (step 15) is a no-op
 microk8s enable gpu                 # NVIDIA device plugin (for llm-core inference)
 microk8s enable hostpath-storage    # PVC provisioner for litellm-db + openwebui-data
-microk8s enable helm3               # Authentik (step 15)
+microk8s enable helm3               # Authentik (step 14)
 microk8s enable registry            # local image registry at localhost:32000 (§5)
 ```
 
 > **Why `rbac` matters:** MicroK8s runs the apiserver with authorization mode
-> `AlwaysAllow` until you enable `rbac`. The two-tier orchestrator RBAC in step 16
+> `AlwaysAllow` until you enable `rbac`. The two-tier orchestrator RBAC in step 15
 > (and the C-3/C-4 fixes that keep a compromised orchestrator out of `llm-core`)
 > only take effect once RBAC is actually enforced. Enable it now, before any
 > workload is deployed.
@@ -100,7 +100,7 @@ microk8s kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.co
 > snap refresh --time      # verify: shows the timer + next scheduled refresh
 > ```
 >
-> **API server access** is restricted to Tailscale in [step 09](09-connectivity-tailscale.md).
+> **API server access** is restricted to Tailscale in [step 08](08-connectivity-tailscale.md).
 > Until then, UFW `default deny incoming` (step 02 §4) blocks LAN access to
 > `16443`; loopback `microk8s kubectl` from the host always works.
 
@@ -171,7 +171,7 @@ from the pod spec by anything with `pods:get`.
 ```bash
 # LiteLLM admin (master) + virtual-key salt. Master key must start with "sk-".
 # Both are printed so you can record them — the master key mints friend keys
-# (step 07); the salt key is PERMANENT and required to restore litellm.db (step 14).
+# (step 06); the salt key is PERMANENT and required to restore litellm.db (step 13).
 LITELLM_MASTER_KEY="sk-$(openssl rand -hex 32)"
 LITELLM_SALT_KEY="$(openssl rand -hex 32)"
 echo "LITELLM_MASTER_KEY=$LITELLM_MASTER_KEY"   # copy to your password manager
@@ -184,7 +184,7 @@ microk8s kubectl create secret generic tabby-credentials -n llm-core --from-lite
 # PostgreSQL password for LiteLLM's database (litellm requires PostgreSQL — postgres.yaml)
 microk8s kubectl create secret generic litellm-postgres-credentials -n llm-core --from-literal=password="$(openssl rand -hex 24)"
 
-# Open WebUI: session-signing secret now; the litellm-key is minted in step 07,
+# Open WebUI: session-signing secret now; the litellm-key is minted in step 06,
 # so seed it empty and patch it there.
 microk8s kubectl create secret generic openwebui-credentials -n llm-core --from-literal=secret-key="$(openssl rand -hex 32)" --from-literal=litellm-key=""
 
@@ -198,7 +198,7 @@ unset CF_TOKEN
 
 > **`salt-key` is permanent.** Changing it after setup silently invalidates every
 > friend virtual key. It lives only in the encrypted Secret — copy it to your
-> password manager now. See [step 14](14-operations.md) for the rotation
+> password manager now. See [step 13](13-operations.md) for the rotation
 > procedure if a leak ever forces it.
 
 ## 4. Create the config ConfigMaps
@@ -267,7 +267,7 @@ Append `@sha256:<digest>` to each `image:` line in the manifests:
 - `assets/k8s/llm-core/open-webui.yaml` → `ghcr.io/open-webui/open-webui:main@sha256:<digest>`
 - `assets/k8s/llm-platform/cloudflared.yaml` → `cloudflare/cloudflared:latest@sha256:<digest>`
 
-> [Step 14](14-operations.md) documents how to re-record digests before pulling
+> [Step 14](13-operations.md) documents how to re-record digests before pulling
 > updates, diff what changed, and re-pin after reviewing changelogs.
 
 ## 7. Install Traefik (Gateway API ingress)
@@ -376,4 +376,4 @@ You should see the GPU **inside** the pod. If not, recheck `microk8s enable gpu`
 - `microk8s kubectl port-forward -n llm-core svc/open-webui 3000:8080` then
   `curl -s http://localhost:3000` returns the Open WebUI page (local only).
 
-→ Continue to [05 — Inference](05-inference-tabbyapi-llamaswap.md).
+→ Continue to [05 — Inference engine + models](05-inference-tabbyapi-llamaswap.md).

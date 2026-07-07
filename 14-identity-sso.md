@@ -1,16 +1,16 @@
-# 15 — Identity & SSO (central IdP)
+# 14 — Identity & SSO (central IdP)
 
-← [14 Operations](14-operations.md) · Next: [16 Workspaces](16-workspaces.md)
+← [13 Operations](13-operations.md) · Next: [15 Workspaces](15-workspaces.md)
 
 > **Overview:** Deploy Authentik as the central OIDC identity provider, migrate Cloudflare Access authentication from email lists to OIDC groups, and configure SSO for Open WebUI and the workspace orchestrator so a single identity controls access across all client types.
 >
-> **Why:** As the number of client types grows past two, scattered per-service credentials become operationally unsound. Authentik is the single plane where adding or removing a person propagates to every surface immediately. This step is the prerequisite for workspaces (step 16).
+> **Why:** As the number of client types grows past two, scattered per-service credentials become operationally unsound. Authentik is the single plane where adding or removing a person propagates to every surface immediately. This step is the prerequisite for workspaces (step 15).
 >
 > **Placeholders to gather before starting:**
 >
 > | Placeholder | What it is | Where to find it |
 > |---|---|---|
-> | `<domain.com>` | Your registered domain | From step 10 |
+> | `<domain.com>` | Your registered domain | From step 09 |
 > | `<server-lan-ip>` | Server's static LAN IP | From step 02 |
 
 Adding on-demand workspaces (the 3rd client type) is the moment to **unify
@@ -60,18 +60,18 @@ alternatives) as the IdP.
    members — operator accounts only.
 4. **Create OIDC provider applications** in Authentik for each service that uses
    OIDC login: CF Access federation, workspace orchestrator, and the Admin UI
-   ([step 17](17-admin-ui.md)). Each gets its own client ID and secret.
+   ([step 16](16-admin-ui.md)). Each gets its own client ID and secret.
 5. **Cloudflare Access → Authentication → add OIDC login method** pointing at
    `https://auth.domain.com` (Authentik's public OIDC endpoint). Replace the
    per-app email lists with **group-based** Access policies (e.g. allow `grp-ui`
    on `llm.`, `grp-workspaces` on the workspaces hostname, `grp-admin` only on
-   `admin.domain.com`). See [step 10](10-connectivity-cloudflare.md) §5 for the
+   `admin.domain.com`). See [step 09](09-connectivity-cloudflare.md) §5 for the
    `auth.domain.com` WAF rules that restrict public access to OIDC paths only.
 6. **Workspace orchestrator** uses Authentik as its OIDC provider for user login
    and reads `sub` (primary key) and `groups` claims for RBAC
-   ([step 16](16-workspaces.md)).
+   ([step 15](15-workspaces.md)).
 7. **Admin UI** uses Authentik OIDC with a `grp-admin` group check as its
-   application-layer auth gate ([step 17](17-admin-ui.md)).
+   application-layer auth gate ([step 16](16-admin-ui.md)).
 8. *(Optional)* Wire **Open WebUI** to Authentik OIDC so UI friends SSO instead
    of maintaining separate local accounts.
 
@@ -105,7 +105,7 @@ values in the Helm chart, which land readable in the release ConfigMap.
 ### Admin UI access (Tailscale only)
 
 The Cloudflare WAF blocks `/if/admin/` and `/api/v3/` on `auth.domain.com`
-([step 10](10-connectivity-cloudflare.md) §5) — the admin UI is not reachable
+([step 09](09-connectivity-cloudflare.md) §5) — the admin UI is not reachable
 from the public internet. Access it exclusively via `kubectl port-forward` over
 your Tailscale connection:
 
@@ -141,7 +141,7 @@ Authentik's built-in reputation system rate-limits failed logins:
    stage). A source IP that accumulates 5 failed logins is blocked for the
    lockout window (default 600 s; tune to taste).
 3. Complement with the Cloudflare WAF rate limit on `/if/flow/` — 10 req/min
-   per IP, block 5 min ([step 10](10-connectivity-cloudflare.md) §5). This
+   per IP, block 5 min ([step 09](09-connectivity-cloudflare.md) §5). This
    provides edge-level protection before requests even reach Authentik.
 
 ### akadmin lockdown
@@ -190,4 +190,4 @@ validity** and **Refresh token validity**.
   CF Access-gated services; the Admin UI deprovision flow handles LiteLLM key
   revocation immediately.
 
-→ Continue to [16 — Workspaces](16-workspaces.md).
+→ Continue to [15 — Workspaces](15-workspaces.md).

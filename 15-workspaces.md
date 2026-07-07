@@ -1,6 +1,6 @@
-# 16 — On-demand workspaces (3rd client type)
+# 15 — On-demand workspaces (3rd client type)
 
-← [15 Identity & SSO](15-identity-sso.md) · [Back to README](README.md)
+← [14 Identity & SSO](14-identity-sso.md) · [Back to README](README.md)
 
 > **Overview:** Install MicroK8s, write the workspace orchestrator (an OIDC-authenticated API that provisions isolated Kubernetes pods per user), configure namespace isolation with NetworkPolicy and RBAC, and expose workspaces via Cloudflare Tunnel and Access.
 >
@@ -10,8 +10,8 @@
 >
 > | Placeholder | What it is | Where to find it |
 > |---|---|---|
-> | `<tailscale-ip>` | Server's Tailscale IPv4 address | `tailscale ip -4` (from step 09) |
-> | `<domain.com>` | Your registered domain | From step 10 |
+> | `<tailscale-ip>` | Server's Tailscale IPv4 address | `tailscale ip -4` (from step 08) |
+> | `<domain.com>` | Your registered domain | From step 09 |
 
 The 3rd client type: the host spins up **on-demand Linux dev environments**
 (hardened pods) that users reach **from anywhere** via a browser IDE, with
@@ -97,7 +97,7 @@ This step assumes the cluster and core stack from
 add-ons (Calico, GPU, hostpath-storage, Helm, registry), Secrets encryption at
 rest, Traefik with the `core-gateway`, and the `llm-core` / `llm-platform`
 namespaces with their default-deny baselines and core NetworkPolicies. It also
-assumes Authentik is deployed and hardened per [step 15](15-identity-sso.md).
+assumes Authentik is deployed and hardened per [step 14](14-identity-sso.md).
 
 This step adds only the workspace-specific pieces: per-user `ws-<sub>`
 namespaces, the workspace Gateway, per-workspace isolation, and the orchestrator.
@@ -208,7 +208,7 @@ The default-deny baselines for `llm-core` and `llm-platform`, and the explicit
 allow policies for `inference`, `litellm`, `open-webui`, `cloudflared`, and
 `traefik`, are all applied in [step 04 §8](04-deploy-stack-ubuntu.md) — their
 `workspace=true` clauses already anticipate the namespaces this step creates. The
-Authentik policies are applied in [step 15](15-identity-sso.md) from
+Authentik policies are applied in [step 14](14-identity-sso.md) from
 `assets/k8s/llm-platform/authentik-networkpolicies.yaml`.
 
 The only network policy this step introduces is the per-workspace
@@ -392,7 +392,7 @@ availability and updates the HTTPRoute atomically.
      the expected template; abort if missing or mismatched (race-condition
      guard — policy must exist before any pod can start).
    - Mint a scoped LiteLLM key (`/key/generate` with `max_budget`, `rpm_limit`,
-     model allowlist — [step 07](07-gateway-litellm.md)).
+     model allowlist — [step 06](06-gateway-litellm.md)).
    - **Write the key alias to `workspaces.litellm_key_alias` and set
      `launched_at = now()` before creating the k8s Secret.** The DB record is
      the authoritative source for revocation — if the orchestrator crashes before
@@ -651,7 +651,7 @@ spec:
 ## 7. Resource management
 
 Applied by the orchestrator at namespace creation. Tune values per quota tier
-(map tiers to Authentik groups in [step 15](15-identity-sso.md)):
+(map tiers to Authentik groups in [step 14](14-identity-sso.md)):
 
 ```yaml
 apiVersion: v1
@@ -715,9 +715,9 @@ Workspace pods never use it.
 ## 9. Access (from anywhere)
 
 - Add a **wildcard tunnel route** `*.ws.domain.com → http://traefik.llm-platform.svc.cluster.local:80`
-  in cloudflared config (step 10 pattern).
+  in cloudflared config (step 09 pattern).
 - A **Cloudflare Access** application on `*.ws.domain.com` with an Allow policy
-  for `grp-workspaces` (federated to Authentik — [step 15](15-identity-sso.md)).
+  for `grp-workspaces` (federated to Authentik — [step 14](14-identity-sso.md)).
   Unauthenticated users are rejected at the edge before reaching Traefik.
 - Defense in depth: CF Access (edge) → workspace NetworkPolicy (ingress from
   Traefik only) → code-server session.

@@ -14,7 +14,7 @@
 > | `<your-user>` | Admin Linux username on the server | Chosen during Ubuntu install |
 > | `<server-lan-ip>` | Server's static LAN IPv4 address | Router DHCP reservation, or `ip addr` after first boot |
 > | `<LAN_CIDR>` | Local subnet in CIDR notation (e.g. `192.168.1.0/24`) | Router admin UI |
-> | `<GRAFANA_HOST_IP>` | LAN IP of the Grafana/Prometheus host (step 14 monitoring) | Fill in when step 14 monitoring is configured — leave the UFW rule commented out until then |
+> | `<GRAFANA_HOST_IP>` | LAN IP of the Grafana/Prometheus host (step 13 monitoring) | Fill in when step 13 monitoring is configured — leave the UFW rule commented out until then |
 
 ## 1. Install Ubuntu Server (LTS)
 
@@ -133,7 +133,7 @@ sudo unattended-upgrades --dry-run --debug 2>&1 | grep -E "Packages|No packages|
 ```
 
 > **Monitoring dependency:** Post-reboot health visibility depends on logs being
-> shipped to Loki before shutdown completes. When implementing step 14 (H-29),
+> shipped to Loki before shutdown completes. When implementing step 13 (H-29),
 > configure the Promtail systemd unit with `TimeoutStopSec=30` so it flushes its
 > buffer before the reboot, and add a Grafana heartbeat alert that fires if the
 > LLM server stops sending logs for more than 5–10 minutes.
@@ -214,7 +214,7 @@ Once they've added their public key to `~/.ssh/authorized_keys`, remove
 the `Match` block and restart SSH — they're key-only from that point on.
 
 > Interface binding (restricting which IPs SSH listens on) is configured in
-> [step 09](09-connectivity-tailscale.md) once your Tailscale IP is known.
+> [step 08](08-connectivity-tailscale.md) once your Tailscale IP is known.
 
 ## 4. Configure the host firewall (UFW)
 
@@ -235,12 +235,12 @@ ip -o -4 route show scope link | awk '{print $1, "dev", $3}'
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 
-# SSH from your local network. sshd's ListenAddress (step 09 §4) also restricts
+# SSH from your local network. sshd's ListenAddress (step 08 §4) also restricts
 # which interfaces sshd binds to; UFW is the independent network-layer backstop.
 # Replace <LAN_CIDR> with the subnet found above.
 sudo ufw allow from <LAN_CIDR> to any port 22 proto tcp
 
-# ── Monitoring placeholder (step 14) ──────────────────────────────────────────
+# ── Monitoring placeholder (step 13) ──────────────────────────────────────────
 # Promtail pushes logs outbound to Loki — no inbound rule needed.
 # Prometheus pulls metrics inbound. Once your Grafana host's LAN IP is known,
 # uncomment and fill in:
@@ -258,13 +258,13 @@ sudo ufw status verbose
 ```
 
 The Tailscale interface rule (`ufw allow in on tailscale0`) is added in
-[step 09 §1](09-connectivity-tailscale.md) once Tailscale is running.
+[step 08 §1](08-connectivity-tailscale.md) once Tailscale is running.
 
 > **Docker and UFW:** Docker can insert iptables rules that bypass UFW for
 > published `ports:` bindings — but here Docker is only an image builder and runs
 > **no containers**, so it publishes no ports. The core stack is MicroK8s, whose
 > Services are ClusterIP (no host ports) reached via the outbound tunnel; any
-> NodePort exception (e.g. Trivy metrics, step 14) gets an explicit UFW rule.
+> NodePort exception (e.g. Trivy metrics, step 13) gets an explicit UFW rule.
 
 ## 5. Install the NVIDIA driver
 

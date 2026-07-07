@@ -1,6 +1,6 @@
-# 13 — Verification (end-to-end)
+# 12 — Verification (end-to-end)
 
-← [12 Clients](12-clients.md) · Next: [14 Operations](14-operations.md)
+← [11 Clients](11-clients.md) · Next: [13 Operations](13-operations.md)
 
 > **Overview:** End-to-end smoke tests covering every persona's happy path (browser UI, API, AI coding tools) and the negative tests that confirm access controls actually hold.
 >
@@ -11,7 +11,7 @@
 > | Placeholder | What it is | Where to find it |
 > |---|---|---|
 > | `<server-ip>` | Server's LAN IP | From step 02 (static DHCP reservation) |
-> | `<virtual-key>` | A test LiteLLM virtual key | Minted in step 07 |
+> | `<virtual-key>` | A test LiteLLM virtual key | Minted in step 06 |
 
 ## Happy paths
 
@@ -37,7 +37,7 @@
       `llm.domain.com` (never reaches Open WebUI).
 - [ ] An API call to `api.domain.com` with a **bad/absent key** returns **401**
       from LiteLLM.
-- [ ] A **revoked** key (step 07 `key/delete`) stops working immediately.
+- [ ] A **revoked** key (step 06 `key/delete`) stops working immediately.
 - [ ] The **inference engine port is unreachable** from the LAN:
       from a LAN host, `curl http://<server-ip>:8080/v1/models` fails/refuses —
       all services are ClusterIP (no host ports), only the outbound Cloudflare
@@ -56,4 +56,4 @@
 If all boxes are checked, the system meets the design intent: friends reach only
 what they should, the engine is private, and admin is Tailscale-only.
 
-→ Continue to [14 — Operations](14-operations.md).
+→ Continue to [13 — Operations](13-operations.md).

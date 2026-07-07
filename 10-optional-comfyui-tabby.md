@@ -1,6 +1,6 @@
-# 11 — Optional: ComfyUI (Stable Diffusion) + Tabby (autocomplete)
+# 10 — Optional: ComfyUI (Stable Diffusion) + Tabby (autocomplete)
 
-← [10 Cloudflare](10-connectivity-cloudflare.md) · Next: [12 Clients](12-clients.md)
+← [09 Cloudflare](09-connectivity-cloudflare.md) · Next: [11 Clients](11-clients.md)
 
 > **Overview:** Optionally add ComfyUI (Stable Diffusion) and/or Tabby ML (code autocomplete) as additional k8s Deployments in `llm-core` that share the same GPU as the inference engine.
 >
@@ -28,7 +28,7 @@ Why ComfyUI: its **queue + WebSocket** API sidesteps Cloudflare's ~100 s timeout
 3. Expose it to friends (optional, advanced): add an `sd.` listener to the
    `core-gateway` and an HTTPRoute to the `comfyui` Service, then a
    `sd.domain.com → http://traefik.llm-platform:80` tunnel route + **Access**
-   policy in [step 10](10-connectivity-cloudflare.md).
+   policy in [step 09](09-connectivity-cloudflare.md).
 
 ## Tabby — self-hosted code autocomplete
 
@@ -42,7 +42,7 @@ A Copilot-style FIM completion server for the IDE.
    `microk8s kubectl port-forward -n llm-core svc/tabby 8080:8080` over Tailscale,
    or add a Gateway listener + HTTPRoute + tunnel route if a remote friend needs it.
 
-> Continue (step 12) also does autocomplete against your main models, so Tabby is
+> Continue (step 11) also does autocomplete against your main models, so Tabby is
 > only worth it if you want a dedicated, always-on completion model.
 
 ## ⚠️ VRAM contention
@@ -62,4 +62,4 @@ SD and the LLM both want the GPU:
   then `http://localhost:8188`; a test generation completes.
 - Tabby `/v1/health` responds (through its port-forward); IDE shows inline completions.
 
-→ Continue to [12 — Clients](12-clients.md).
+→ Continue to [11 — Clients](11-clients.md).

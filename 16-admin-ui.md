@@ -1,6 +1,6 @@
-# 17 — Admin UI
+# 16 — Admin UI
 
-← [16 Workspaces](16-workspaces.md) · [Back to README](README.md)
+← [15 Workspaces](15-workspaces.md) · [Back to README](README.md)
 
 > **Overview:** Design and implement a unified admin web UI that surfaces friend key lifecycle, Authentik user management, Open WebUI account operations, and workspace status — calling the orchestrator and service APIs as backends.
 >
@@ -8,7 +8,7 @@
 
 A separate web service that provides a unified management surface for all
 operational tasks: friend API key lifecycle, Authentik user provisioning, Open
-WebUI accounts, and workspace status. The orchestrator ([step 16](16-workspaces.md))
+WebUI accounts, and workspace status. The orchestrator ([step 15](15-workspaces.md))
 remains a self-contained workspace lifecycle engine; the Admin UI is the
 operator's control plane that calls the orchestrator's internal API as one of
 several backends.
@@ -287,7 +287,7 @@ copy is used only for workspace-scoped key mint/revoke during launch and destroy
 ### Audit log
 Every action records: timestamp, authenticated admin (from OIDC sub), operation
 type, target (user sub or key alias), and outcome. Logs are written to a
-persistent volume and forwarded to the external Loki instance ([step 14](14-operations.md) monitoring).
+persistent volume and forwarded to the external Loki instance ([step 13](13-operations.md) monitoring).
 
 ---
 
@@ -396,7 +396,7 @@ spec:
   literals readable from the pod spec by anything with `pods:get` (H-12 pattern).
 - If the Admin UI is unavailable (cloudflared down, pod crash), fall back to
   Tailscale + direct curl to LiteLLM and Authentik admin APIs. Document the
-  curl equivalents for each operation in the operations runbook (step 14).
+  curl equivalents for each operation in the operations runbook (step 13).
 - `grp-admin` should have the fewest members of any group — ideally only the
   server operator(s).
 

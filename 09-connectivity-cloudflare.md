@@ -1,6 +1,6 @@
-# 10 — Connectivity: friends (Cloudflare Tunnel + Access)
+# 09 — Connectivity: friends (Cloudflare Tunnel + Access)
 
-← [09 Tailscale](09-connectivity-tailscale.md) · Next: [11 Optional services](11-optional-comfyui-tabby.md)
+← [08 Tailscale](08-connectivity-tailscale.md) · Next: [10 Optional services](10-optional-comfyui-tabby.md)
 
 > **Overview:** Configure Cloudflare Tunnel routing and Zero Trust Access policies to expose `llm.domain.com` (Open WebUI) and `api.domain.com` (LiteLLM API) to authorised friends, with email-allow-list authentication enforced at the Cloudflare edge.
 >
@@ -39,15 +39,15 @@ application routes**:
 |---|---|---|
 | `llm.domain.com` | `http://traefik.llm-platform:80` | Now |
 | `api.domain.com` | `http://traefik.llm-platform:80` | Now |
-| `auth.domain.com` | `http://traefik.llm-platform:80` | † [Step 15](15-identity-sso.md) — after Authentik and its `auth.` HTTPRoute exist |
-| `admin.domain.com` | `http://traefik.llm-platform:80` | † [Step 17](17-admin-ui.md) — after the Admin UI and its `admin.` HTTPRoute exist |
+| `auth.domain.com` | `http://traefik.llm-platform:80` | † [Step 15](14-identity-sso.md) — after Authentik and its `auth.` HTTPRoute exist |
+| `admin.domain.com` | `http://traefik.llm-platform:80` | † [Step 17](16-admin-ui.md) — after the Admin UI and its `admin.` HTTPRoute exist |
 
 > **† Add the last two rows later.** The `core-gateway` has `auth.` and `admin.`
-> listeners, but no HTTPRoute attaches to them until Authentik (step 15) and the
-> Admin UI (step 17) are deployed. Publish a tunnel route before its HTTPRoute
+> listeners, but no HTTPRoute attaches to them until Authentik (step 14) and the
+> Admin UI (step 16) are deployed. Publish a tunnel route before its HTTPRoute
 > exists and Traefik answers **404** for that hostname. Add `llm.` and `api.` now
-> (their HTTPRoutes are created in step 04); return for `auth.` in step 15 and
-> `admin.` in step 17.
+> (their HTTPRoutes are created in step 04); return for `auth.` in step 14 and
+> `admin.` in step 16.
 
 `auth.domain.com` exposes only Authentik's OIDC endpoints — the WAF rules
 in §5 block all other paths including the Authentik admin UI. Cloudflare
@@ -66,7 +66,7 @@ is rejected at Cloudflare's edge.
 
 ## 4. Access on the API (`api.domain.com`) — bypass + key + WAF path blocks
 
-API clients use a single credential: the LiteLLM virtual key (step 07) sent
+API clients use a single credential: the LiteLLM virtual key (step 06) sent
 as `Authorization: Bearer <key>`. `api.domain.com` is therefore **bypassed**
 at CF Access and protected by LiteLLM auth + WAF rules downstream.
 
@@ -97,7 +97,7 @@ admin endpoint not listed here):
 > dedicated block entry. The `(?i)` flag makes matching case-insensitive,
 > preventing capitalisation bypasses (e.g. `/KEY/generate`, `/V1/Chat/Completions`).
 > Admin operations go via a Tailscale-gated `kubectl port-forward` only — never
-> the tunnel (see [step 07](07-gateway-litellm.md)).
+> the tunnel (see [step 06](06-gateway-litellm.md)).
 
 ## 5. Access on the auth endpoint (`auth.domain.com`) — bypass + WAF path allowlist
 
@@ -127,8 +127,8 @@ zone):
 > **Accepted residual:** the OIDC and login-flow endpoints are publicly
 > reachable. Mitigations: WAF rate limit on login flows, Authentik brute-force
 > lockout (5 failed attempts → 30 min lock), and MFA enforced on all accounts
-> (step 15). CVE exposure from public-facing Authentik is monitored by the
-> Trivy Operator (step 14/H-29).
+> (step 14). CVE exposure from public-facing Authentik is monitored by the
+> Trivy Operator (step 13/H-29).
 
 ## 6. Tunnel token hygiene
 
@@ -177,4 +177,4 @@ An *unexpected* extra connector is the primary indicator of a leaked token.
 - `curl https://api.domain.com/health` returns **403 Blocked** (WAF allowlist).
 - `curl https://api.domain.com/KEY/generate` returns **403 Blocked** (case-insensitive match).
 
-→ Continue to [11 — Optional: ComfyUI + Tabby](11-optional-comfyui-tabby.md).
+→ Continue to [10 — Optional: ComfyUI + Tabby](10-optional-comfyui-tabby.md).
