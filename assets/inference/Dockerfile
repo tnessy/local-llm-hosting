@@ -21,13 +21,16 @@ ARG LLAMA_SWAP_VERSION=v235
 ARG LLAMA_SWAP_SHA256
 RUN test -n "${LLAMA_SWAP_SHA256}" \
       || { echo 'ERROR: set LLAMA_SWAP_SHA256 (step 04 §5)'; exit 1; } \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends wget ca-certificates \
     && ver="${LLAMA_SWAP_VERSION#v}" \
     && wget -qO /tmp/llama-swap.tgz \
       "https://github.com/mostlygeek/llama-swap/releases/download/${LLAMA_SWAP_VERSION}/llama-swap_${ver}_linux_amd64.tar.gz" \
     && printf '%s  /tmp/llama-swap.tgz\n' "${LLAMA_SWAP_SHA256}" | sha256sum -c \
-    && tar -xzf /tmp/llama-swap.tgz -C /usr/local/bin llama-swap \
-    && rm -f /tmp/llama-swap.tgz \
-    && chmod +x /usr/local/bin/llama-swap
+    && mkdir -p /tmp/lsx \
+    && tar -xzf /tmp/llama-swap.tgz -C /tmp/lsx \
+    && install -m 0755 "$(find /tmp/lsx -type f -name llama-swap | head -1)" /usr/local/bin/llama-swap \
+    && rm -rf /tmp/llama-swap.tgz /tmp/lsx /var/lib/apt/lists/*
 
 # llama-swap config is mounted at /app/config.yaml from the llama-swap-config
 # ConfigMap (step 04 §4).
