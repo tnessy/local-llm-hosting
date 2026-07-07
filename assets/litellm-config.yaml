@@ -24,7 +24,7 @@ litellm_settings:
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY   # admin key for /key/generate (step 06)
-  database_url: "sqlite:////app/db/litellm.db"  # stores virtual keys + spend
+  database_url: os.environ/DATABASE_URL       # PostgreSQL (postgres.yaml); stores virtual keys + spend
 
 # Dialect endpoints exposed by LiteLLM (used in step 12):
 #   OpenAI Chat Completions : POST {api.domain.com}/v1/chat/completions

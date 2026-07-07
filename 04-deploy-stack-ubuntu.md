@@ -181,6 +181,9 @@ microk8s kubectl create secret generic litellm-credentials -n llm-core --from-li
 # Internal key TabbyAPI requires; shared by inference (server) and litellm (client)
 microk8s kubectl create secret generic tabby-credentials -n llm-core --from-literal=api-key="$(openssl rand -hex 32)"
 
+# PostgreSQL password for LiteLLM's database (litellm requires PostgreSQL — postgres.yaml)
+microk8s kubectl create secret generic litellm-postgres-credentials -n llm-core --from-literal=password="$(openssl rand -hex 24)"
+
 # Open WebUI: session-signing secret now; the litellm-key is minted in step 06,
 # so seed it empty and patch it there.
 microk8s kubectl create secret generic openwebui-credentials -n llm-core --from-literal=secret-key="$(openssl rand -hex 32)" --from-literal=litellm-key=""
@@ -321,6 +324,7 @@ microk8s kubectl apply -f assets/k8s/llm-platform/default-deny.yaml
 
 # 2. Workloads + Services
 microk8s kubectl apply -f assets/k8s/llm-core/inference.yaml
+microk8s kubectl apply -f assets/k8s/llm-core/postgres.yaml
 microk8s kubectl apply -f assets/k8s/llm-core/litellm.yaml
 microk8s kubectl apply -f assets/k8s/llm-core/open-webui.yaml
 microk8s kubectl apply -f assets/k8s/llm-platform/cloudflared.yaml

@@ -83,6 +83,46 @@ spec:
     - port: 8080
       protocol: TCP
   - to:
+    - podSelector:
+        matchLabels:
+          app: litellm-postgres
+    ports:
+    - port: 5432
+      protocol: TCP
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+---
+# litellm-postgres: ingress from litellm only; egress to kube-dns only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: litellm-postgres-policy
+  namespace: llm-core
+spec:
+  podSelector:
+    matchLabels:
+      app: litellm-postgres
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: litellm
+    ports:
+    - port: 5432
+      protocol: TCP
+  egress:
+  - to:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: kube-system

@@ -17,7 +17,7 @@ models:
       --model-dir /models
       --model-name <Qwen3-Coder-30B-exl2>
       --max-seq-len 65536
-      --api-key ${TABBY_API_KEY}
+      --api-key ${env.TABBY_API_KEY}
       --host 127.0.0.1 --port 5001
     proxy: "http://127.0.0.1:5001"
     # Health endpoint llama-swap polls to know the backend is ready.
@@ -30,7 +30,7 @@ models:
       --model-dir /models
       --model-name <general-chat-exl2>
       --max-seq-len 32768
-      --api-key ${TABBY_API_KEY}
+      --api-key ${env.TABBY_API_KEY}
       --host 127.0.0.1 --port 5002
     proxy: "http://127.0.0.1:5002"
     checkEndpoint: "/health"
