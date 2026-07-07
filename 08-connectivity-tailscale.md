@@ -30,13 +30,19 @@ doesn't drop off, and add the tag `tag:llm` to it.
 > **Remote `kubectl` over Tailscale.** The MicroK8s API server binds to
 > `0.0.0.0:16443`, but UFW `default deny incoming` (step 02 §4) blocks it on the
 > LAN while the `tailscale0` allow rule above permits it over the tailnet. To drive
-> the cluster from your laptop, point a kubeconfig at the server's Tailscale IP:
+> the cluster from your laptop, build a kubeconfig pointed at the server's Tailscale
+> IP. `microk8s config` emits the server's **LAN** IP (not `127.0.0.1`), so rewrite
+> whatever host is in the `server:` line:
 > ```bash
-> microk8s config | sed "s/127.0.0.1/$(tailscale ip -4)/" > ~/.kube/microk8s-tailscale.config
+> ssh <user>@<TAILSCALE_IP> "microk8s config" | sed "s#https://[0-9.]*:16443#https://<TAILSCALE_IP>:16443#" > ~/.kube/microk8s-tailscale.config
 > export KUBECONFIG=~/.kube/microk8s-tailscale.config
 > kubectl get nodes   # verify from your laptop over Tailscale
 > ```
-> On the server itself, loopback `microk8s kubectl` (127.0.0.1:16443) always works.
+> If kubectl returns an x509 error (*certificate is valid for … not `<TAILSCALE_IP>`*),
+> the API server cert predates Tailscale and lacks that SAN. On the server, regenerate
+> it to pick up all current interface IPs — brief API restart, existing kubeconfigs
+> stay valid: `sudo microk8s refresh-certs --cert server.crt`. Then retry.
+> On the server itself, loopback `microk8s kubectl` always works.
 
 ## 2. Install Tailscale on your own devices
 
@@ -52,36 +58,55 @@ default.
 
 ## 4. Restrict SSH to LAN and Tailscale interfaces
 
-SSH must only answer on your static LAN interface and the Tailscale overlay —
-not on `0.0.0.0`.
+SSH must only answer on your static LAN interface and the Tailscale overlay — not
+on `0.0.0.0`/`::`. **Keep your current SSH session open throughout this step** as a
+safety net, and confirm a fresh connection before closing it.
 
-1. Find your Tailscale IP:
+Get your Tailscale IP (`tailscale ip -4`) and note your server's static LAN IP.
 
-   ```bash
-   tailscale ip -4
-   ```
+> **Modern Ubuntu (24.04+, incl. 26.04) uses systemd _socket activation_ for SSH:**
+> `ssh.socket` owns the listener and **`ListenAddress` in `sshd_config` is ignored**
+> (a giveaway in `ss` output is `systemd,pid=1` owning the port-22 socket). Check
+> which model you're on:
+>
+> ```bash
+> systemctl is-active ssh.socket
+> ```
 
-2. Add both `ListenAddress` lines to `/etc/ssh/sshd_config`:
+**If that prints `active` (socket-activated):** constrain the socket unit. The empty
+`ListenStream=` resets the inherited `0.0.0.0:22`/`[::]:22` before your two binds are
+added (single-line writes; substitute your IPs):
 
-   ```
-   # Bind SSH only to these two interfaces
-   ListenAddress 192.168.x.x    # your server's static LAN IP
-   ListenAddress 100.x.x.x      # your Tailscale IP from step above
-   ```
+```bash
+sudo mkdir -p /etc/systemd/system/ssh.socket.d
+echo '[Socket]' | sudo tee /etc/systemd/system/ssh.socket.d/listen.conf
+echo 'ListenStream=' | sudo tee -a /etc/systemd/system/ssh.socket.d/listen.conf
+echo 'ListenStream=<LAN_IP>:22' | sudo tee -a /etc/systemd/system/ssh.socket.d/listen.conf
+echo 'ListenStream=<TAILSCALE_IP>:22' | sudo tee -a /etc/systemd/system/ssh.socket.d/listen.conf
+sudo systemctl daemon-reload
+sudo systemctl restart ssh.socket
+```
 
-3. Validate and reload:
+**If it prints `inactive`/`failed` (traditional daemon):** add the binds to the SSH
+hardening drop-in from [step 02](02-host-os-ubuntu.md), then validate and restart:
 
-   ```bash
-   sudo sshd -t
-   sudo systemctl restart ssh
-   ```
+```bash
+echo 'ListenAddress <LAN_IP>' | sudo tee -a /etc/ssh/sshd_config.d/00-hardening.conf
+echo 'ListenAddress <TAILSCALE_IP>' | sudo tee -a /etc/ssh/sshd_config.d/00-hardening.conf
+sudo sshd -t
+sudo systemctl restart ssh
+```
 
-4. Verify — `ss` output must show **only** your LAN and Tailscale IPs on
-   port 22, not `0.0.0.0`:
+**Verify (either path)** — must show **only** your LAN and Tailscale IPs on port 22,
+never `0.0.0.0`/`*`:
 
-   ```bash
-   ss -tlnp | grep sshd
-   ```
+```bash
+sudo ss -tlnp | grep ':22'
+```
+
+Then, without closing your current session, open fresh SSH connections on **both**
+the LAN and Tailscale IPs to confirm. To revert the socket-activated change:
+`sudo rm /etc/systemd/system/ssh.socket.d/listen.conf && sudo systemctl daemon-reload && sudo systemctl restart ssh.socket`.
 
 ## 5. Network isolation (VLAN)
 
