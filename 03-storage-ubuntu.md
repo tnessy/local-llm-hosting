@@ -62,7 +62,7 @@ df -h /srv/models
 
 The inference pod mounts `/srv/models` **read-only** via a `hostPath` volume
 ([step 04](04-deploy-stack-ubuntu.md)); you download weights into it from the host
-in [step 10](10-models.md). Give your admin user write access so those downloads
+in [step 06](06-models.md). Give your admin user write access so those downloads
 work:
 
 ```bash
@@ -76,6 +76,6 @@ sudo chown -R $USER:$USER /srv/models
 - `ls /srv/models` succeeds as your non-root user.
 
 The inference pod mounts `/srv/models` as `/models` (read-only `hostPath`); you
-populate it from the host in [step 10](10-models.md).
+populate it from the host in [step 06](06-models.md).
 
 → Continue to [04 — Deploy stack](04-deploy-stack-ubuntu.md).

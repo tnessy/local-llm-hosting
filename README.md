@@ -81,15 +81,15 @@ it's implemented, so changing a decision = editing that step.
 
 | # | Decision | Choice | Why / alternatives | Implemented in |
 |---|---|---|---|---|
-| D1 | Friend connectivity | **Cloudflare Tunnel + Access** | No VPN/installs, no open router ports. Alt: Tailscale (rejected — requires a client per friend). | [08](08-connectivity-cloudflare.md) |
+| D1 | Friend connectivity | **Cloudflare Tunnel + Access** | No VPN/installs, no open router ports. Alt: Tailscale (rejected — requires a client per friend). | [10](10-connectivity-cloudflare.md) |
 | D2 | Admin connectivity | **Tailscale** | Keeps host UI / SSH / engine off the public internet. | [09](09-connectivity-tailscale.md) |
 | D3 | GPU sharing | **llama-swap** (on-demand swap) | One GPU time-shared cleanly. Alt: run two engines concurrently (rejected — VRAM contention). | [05](05-inference-tabbyapi-llamaswap.md) |
 | D4 | Inference engine | **TabbyAPI + ExLlamaV2** | Fastest INT4 on a single consumer GPU. Alt: vLLM (concurrency, static model), Ollama (simplest). | [05](05-inference-tabbyapi-llamaswap.md) |
-| D5 | API gateway | **LiteLLM** | Per-user keys/budgets + OpenAI/Responses/Anthropic dialect translation. | [06](06-gateway-litellm.md) |
-| D6 | Web UI | **Open WebUI** | General-chat-first + RBAC auth boundary. Alt: AnythingLLM (RAG-first — rejected for this use). | [07](07-webui-open-webui.md) |
+| D5 | API gateway | **LiteLLM** | Per-user keys/budgets + OpenAI/Responses/Anthropic dialect translation. | [07](07-gateway-litellm.md) |
+| D6 | Web UI | **Open WebUI** | General-chat-first + RBAC auth boundary. Alt: AnythingLLM (RAG-first — rejected for this use). | [08](08-webui-open-webui.md) |
 | D7 | Coding clients | **Continue (IDE) + Aider (CLI)** | Model-agnostic, forgiving of local models. Any OAI/Anthropic tool also works. | [12](12-clients.md) |
 | D8 | Host OS | **Ubuntu Server (latest LTS)** | Plain Linux — no NAS overhead; best NVIDIA/CUDA driver support; runs MicroK8s + Docker (as an image builder) cleanly. Alt: Debian (slightly more manual NVIDIA setup), Arch (rolling — too risky for 24/7). | [02](02-host-os-ubuntu.md) |
-| D9 | Model format/picks | **EXL2 quants, deferred** | Finalize at GPU purchase; sizing table in step 10. | [10](10-models.md) |
+| D9 | Model format/picks | **EXL2 quants, deferred** | Finalize at GPU purchase; sizing table in step 06. | [06](06-models.md) |
 | D10 | Optional services | **ComfyUI (SD), Tabby (FIM)** | Add later; mind VRAM contention. | [11](11-optional-comfyui-tabby.md) |
 | D11 | Identity / SSO | **Authentik (OIDC IdP)** | One user/group source for all client types; CF Access federates to it. Alt: Keycloak/Zitadel. | [15](15-identity-sso.md) |
 | D12 | Workspaces (3rd client) | **MicroK8s + custom orchestrator + hardened pods, browser IDE** | On-demand dev envs; GPU-free; workspace pods reach LiteLLM in-cluster (no public hop); NetworkPolicy enforces isolation. Ingress via Traefik + Gateway API (ingress-nginx EOL March 2026). Alt (reference): Coder, Kasm. | [16](16-workspaces.md) |
@@ -121,17 +121,18 @@ Follow in order.
 | 03 | [Storage (Ubuntu)](03-storage-ubuntu.md) | Format NVMe, mount at `/srv/models` |
 | 04 | [Bootstrap MicroK8s + deploy core stack](04-deploy-stack-ubuntu.md) | Install MicroK8s + add-ons, deploy inference/litellm/open-webui/cloudflared/Traefik |
 | 05 | [Inference: TabbyAPI + llama-swap](05-inference-tabbyapi-llamaswap.md) | Model-swap engine config |
-| 06 | [Gateway: LiteLLM](06-gateway-litellm.md) | Virtual keys, budgets, dialect routes |
-| 07 | [Web UI: Open WebUI](07-webui-open-webui.md) | Accounts, signup off, model wiring |
-| 08 | [Connectivity — friends (Cloudflare)](08-connectivity-cloudflare.md) | Tunnel + Access + WAF |
+| 06 | [Models](06-models.md) | Fetch EXL2, set context, validate tool-calling |
+| 07 | [Gateway: LiteLLM](07-gateway-litellm.md) | Virtual keys, budgets, dialect routes |
+| 08 | [Web UI: Open WebUI](08-webui-open-webui.md) | Accounts, signup off, model wiring |
 | 09 | [Connectivity — admin (Tailscale)](09-connectivity-tailscale.md) | Admin overlay + ACL + VLAN |
-| 10 | [Models](10-models.md) | Fetch EXL2, set context, validate tool-calling |
+| 10 | [Connectivity — friends (Cloudflare)](10-connectivity-cloudflare.md) | Tunnel + Access + WAF |
 | 11 | [Optional: ComfyUI + Tabby](11-optional-comfyui-tabby.md) | Image gen + autocomplete |
 | 12 | [Clients](12-clients.md) | Open WebUI, Continue, Aider, Codex, Claude Code |
 | 13 | [Verification](13-verification.md) | End-to-end + negative tests |
 | 14 | [Operations](14-operations.md) | Backups, updates, key rotation, monitoring |
 | 15 | [Identity & SSO](15-identity-sso.md) | Central Authentik IdP; CF Access federation; groups → RBAC |
 | 16 | [Workspaces](16-workspaces.md) | On-demand browser dev environments (3rd client type) |
+| 17 | [Admin UI](17-admin-ui.md) | OIDC-gated control plane for user / key / workspace management |
 
 Shared config artifacts live in [`assets/`](assets/) and are referenced (not
 duplicated) by the steps above.
@@ -145,11 +146,11 @@ duplicated) by the steps above.
 - [ ] 03 Fast model storage
 - [ ] 04 MicroK8s bootstrapped + core stack deployed
 - [ ] 05 Inference (TabbyAPI + llama-swap)
-- [ ] 06 LiteLLM gateway + per-friend keys
-- [ ] 07 Open WebUI accounts (signup disabled)
-- [ ] 08 Cloudflare Tunnel + Access + WAF
+- [ ] 06 Models pulled + context set + tool-calling validated
+- [ ] 07 LiteLLM gateway + per-friend keys
+- [ ] 08 Open WebUI accounts (signup disabled)
 - [ ] 09 Tailscale admin plane + VLAN
-- [ ] 10 Models pulled + context set + tool-calling validated
+- [ ] 10 Cloudflare Tunnel + Access + WAF
 - [ ] 11 (Optional) ComfyUI / Tabby
 - [ ] 12 Clients configured
 - [ ] 13 End-to-end verification passed

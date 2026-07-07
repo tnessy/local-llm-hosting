@@ -1,6 +1,6 @@
 # Cloudflare Tunnel + Access — settings reference
 
-Companion to [step 08](../08-connectivity-cloudflare.md). All configured in the
+Companion to [step 10](../10-connectivity-cloudflare.md). All configured in the
 Cloudflare dashboard (no files on the server beyond the tunnel token, held in the
 `cloudflared-credentials` Kubernetes Secret).
 
@@ -41,7 +41,7 @@ downstream by LiteLLM.
 - **Policy → Bypass**, rule **Everyone**.
 
 > **Accepted residual:** no edge-level identity check precedes the LiteLLM key
-> check. The WAF allowlist (step 08 §4) blocks all non-inference paths so
+> check. The WAF allowlist (step 10 §4) blocks all non-inference paths so
 > unauthenticated callers cannot reach admin endpoints. Admin operations require
 > Tailscale and are never routed through the tunnel.
 

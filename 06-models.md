@@ -1,6 +1,6 @@
-# 10 — Models
+# 06 — Models
 
-← [09 Tailscale](09-connectivity-tailscale.md) · Next: [11 Optional services](11-optional-comfyui-tabby.md)
+← [05 Inference](05-inference-tabbyapi-llamaswap.md) · Next: [07 LiteLLM](07-gateway-litellm.md)
 
 > **Overview:** Download EXL2-quantized model weights to `/srv/models` via `huggingface-cli` and configure them in `llama-swap-config.yaml` with context window and max sequence length settings.
 >
@@ -51,7 +51,7 @@ this stack. Running one locally means **switching to llama.cpp/GGUF with
 MoE CPU-offload** (1× 24 GB GPU **+ 256 GB system RAM**, single-digit tok/s), a
 **256–512 GB Mac Ultra**, or a **multi-H200 cluster** — none interactive-grade for
 the money. Instead, **route them through LiteLLM to a hosted API**
-([step 06](06-gateway-litellm.md)) — clients don't change. Use local for the
+([step 07](07-gateway-litellm.md)) — clients don't change. Use local for the
 fast/private 24 GB-tier coder, cloud for the frontier giants.
 
 ## 2. Download EXL2 weights to the model store
@@ -108,4 +108,4 @@ microk8s kubectl exec -n llm-core deploy/litellm -- curl -s http://inference:808
 Lists your real `coder`/`chat` models. A chat through Open WebUI and an Aider
 edit both succeed.
 
-→ Continue to [11 — Optional: ComfyUI + Tabby](11-optional-comfyui-tabby.md).
+→ Continue to [07 — LiteLLM gateway](07-gateway-litellm.md).

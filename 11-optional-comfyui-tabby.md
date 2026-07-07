@@ -1,6 +1,6 @@
 # 11 — Optional: ComfyUI (Stable Diffusion) + Tabby (autocomplete)
 
-← [10 Models](10-models.md) · Next: [12 Clients](12-clients.md)
+← [10 Cloudflare](10-connectivity-cloudflare.md) · Next: [12 Clients](12-clients.md)
 
 > **Overview:** Optionally add ComfyUI (Stable Diffusion) and/or Tabby ML (code autocomplete) as additional k8s Deployments in `llm-core` that share the same GPU as the inference engine.
 >
@@ -28,7 +28,7 @@ Why ComfyUI: its **queue + WebSocket** API sidesteps Cloudflare's ~100 s timeout
 3. Expose it to friends (optional, advanced): add an `sd.` listener to the
    `core-gateway` and an HTTPRoute to the `comfyui` Service, then a
    `sd.domain.com → http://traefik.llm-platform:80` tunnel route + **Access**
-   policy in [step 08](08-connectivity-cloudflare.md).
+   policy in [step 10](10-connectivity-cloudflare.md).
 
 ## Tabby — self-hosted code autocomplete
 

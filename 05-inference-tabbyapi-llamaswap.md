@@ -1,10 +1,10 @@
 # 05 — Inference: TabbyAPI + ExLlamaV2 + llama-swap
 
-← [04 Deploy stack](04-deploy-stack-ubuntu.md) · Next: [06 LiteLLM](06-gateway-litellm.md)
+← [04 Deploy stack](04-deploy-stack-ubuntu.md) · Next: [06 Models](06-models.md)
 
 > **Overview:** Configure the inference engine layer — llama-swap acts as the request router, launching a per-model TabbyAPI/ExLlamaV2 process on demand and unloading it when another model is requested.
 >
-> **Why:** A single GPU is time-shared across models via llama-swap rather than contended. Correct configuration here determines which models are available, how much VRAM each uses, and whether tool-calling functions correctly. Model file paths are filled in at step 10 once weights are downloaded.
+> **Why:** A single GPU is time-shared across models via llama-swap rather than contended. Correct configuration here determines which models are available, how much VRAM each uses, and whether tool-calling functions correctly. Model file paths are filled in at step 06 once weights are downloaded.
 
 This is the engine layer (decisions **D3/D4**). **llama-swap** is the front door
 on `:8080`; it launches a **TabbyAPI/ExLlamaV2** process for whichever model a
@@ -33,7 +33,7 @@ In [`llama-swap-config.yaml`](assets/llama-swap-config.yaml) each entry maps a
 - `chat` → a general chat model.
 
 The `<placeholders>` (model filenames) are filled in
-[step 10](10-models.md) once you've downloaded EXL2 weights. Until then the
+[step 06](06-models.md) once you've downloaded EXL2 weights. Until then the
 engine starts but has no model to load.
 
 ## 2. Tuning knobs
@@ -73,7 +73,7 @@ abstracts it). See the decisions log (D3/D4) to revisit.
 
 ## Verification
 
-After [step 10](10-models.md) fills in real models:
+After [step 06](06-models.md) fills in real models:
 
 ```bash
 # from the server, exercise the internal endpoint via the litellm pod
@@ -83,4 +83,4 @@ microk8s kubectl exec -n llm-core deploy/litellm -- curl -s http://inference:808
 You should see `coder` and `chat` listed. A first chat request triggers a cold
 load (watch `microk8s kubectl logs -f -n llm-core deploy/inference`), then responds.
 
-→ Continue to [06 — LiteLLM gateway](06-gateway-litellm.md).
+→ Continue to [06 — Models](06-models.md).

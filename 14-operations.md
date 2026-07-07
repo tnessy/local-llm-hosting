@@ -459,9 +459,9 @@ curl -s 'http://localhost:9090/api/v1/query?query=trivy_image_vulnerabilities' |
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Model "dumb"/forgets context | `--max-seq-len` too small | Raise it (step 10), watch VRAM |
+| Model "dumb"/forgets context | `--max-seq-len` too small | Raise it (step 06), watch VRAM |
 | 524 from Cloudflare | Long non-streamed response | Ensure streaming; for SD use ComfyUI queue API |
-| 401 on API | Bad/expired virtual key | Re-issue (step 06) |
+| 401 on API | Bad/expired virtual key | Re-issue (step 07) |
 | Engine has no models | llama-swap placeholders not filled | Step 10 |
 | GPU not seen in pod | Driver / GPU device plugin | Steps 02/04 |
 | Slow first response | Cold model load (expected) | Raise `ttl`; keep model warm |

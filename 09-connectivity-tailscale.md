@@ -1,6 +1,6 @@
 # 09 — Connectivity: admin (Tailscale)
 
-← [08 Cloudflare](08-connectivity-cloudflare.md) · Next: [10 Models](10-models.md)
+← [08 Open WebUI](08-webui-open-webui.md) · Next: [10 Cloudflare](10-connectivity-cloudflare.md)
 
 > **Overview:** Install Tailscale on the server, apply the admin ACL so only your own devices can reach `tag:llm`, restrict SSH to the LAN and Tailscale interfaces only, and validate network isolation.
 >
@@ -102,4 +102,4 @@ not on `0.0.0.0`.
 - `https://llm.domain.com` still works for friends (that path is Cloudflare, not
   Tailscale).
 
-→ Continue to [10 — Models](10-models.md).
+→ Continue to [10 — Connectivity: friends (Cloudflare)](10-connectivity-cloudflare.md).

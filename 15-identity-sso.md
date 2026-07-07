@@ -10,7 +10,7 @@
 >
 > | Placeholder | What it is | Where to find it |
 > |---|---|---|
-> | `<domain.com>` | Your registered domain | From step 08 |
+> | `<domain.com>` | Your registered domain | From step 10 |
 > | `<server-lan-ip>` | Server's static LAN IP | From step 02 |
 
 Adding on-demand workspaces (the 3rd client type) is the moment to **unify
@@ -65,7 +65,7 @@ alternatives) as the IdP.
    `https://auth.domain.com` (Authentik's public OIDC endpoint). Replace the
    per-app email lists with **group-based** Access policies (e.g. allow `grp-ui`
    on `llm.`, `grp-workspaces` on the workspaces hostname, `grp-admin` only on
-   `admin.domain.com`). See [step 08](08-connectivity-cloudflare.md) §5 for the
+   `admin.domain.com`). See [step 10](10-connectivity-cloudflare.md) §5 for the
    `auth.domain.com` WAF rules that restrict public access to OIDC paths only.
 6. **Workspace orchestrator** uses Authentik as its OIDC provider for user login
    and reads `sub` (primary key) and `groups` claims for RBAC
@@ -105,7 +105,7 @@ values in the Helm chart, which land readable in the release ConfigMap.
 ### Admin UI access (Tailscale only)
 
 The Cloudflare WAF blocks `/if/admin/` and `/api/v3/` on `auth.domain.com`
-([step 08](08-connectivity-cloudflare.md) §5) — the admin UI is not reachable
+([step 10](10-connectivity-cloudflare.md) §5) — the admin UI is not reachable
 from the public internet. Access it exclusively via `kubectl port-forward` over
 your Tailscale connection:
 
@@ -141,7 +141,7 @@ Authentik's built-in reputation system rate-limits failed logins:
    stage). A source IP that accumulates 5 failed logins is blocked for the
    lockout window (default 600 s; tune to taste).
 3. Complement with the Cloudflare WAF rate limit on `/if/flow/` — 10 req/min
-   per IP, block 5 min ([step 08](08-connectivity-cloudflare.md) §5). This
+   per IP, block 5 min ([step 10](10-connectivity-cloudflare.md) §5). This
    provides edge-level protection before requests even reach Authentik.
 
 ### akadmin lockdown

@@ -11,7 +11,7 @@
 > | Placeholder | What it is | Where to find it |
 > |---|---|---|
 > | `<server-ip>` | Server's LAN IP | From step 02 (static DHCP reservation) |
-> | `<virtual-key>` | A test LiteLLM virtual key | Minted in step 06 |
+> | `<virtual-key>` | A test LiteLLM virtual key | Minted in step 07 |
 
 ## Happy paths
 
@@ -37,7 +37,7 @@
       `llm.domain.com` (never reaches Open WebUI).
 - [ ] An API call to `api.domain.com` with a **bad/absent key** returns **401**
       from LiteLLM.
-- [ ] A **revoked** key (step 06 `key/delete`) stops working immediately.
+- [ ] A **revoked** key (step 07 `key/delete`) stops working immediately.
 - [ ] The **inference engine port is unreachable** from the LAN:
       from a LAN host, `curl http://<server-ip>:8080/v1/models` fails/refuses —
       all services are ClusterIP (no host ports), only the outbound Cloudflare

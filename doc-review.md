@@ -15,9 +15,9 @@ retiring `assets/docker-compose.yml` and the token-migration/ordering traps).
 
 ### ORD-1 — ✅ FIXED — Step 08 §2: `auth.domain.com` and `admin.domain.com` Tunnel Routes Are Premature
 
-**Location:** `08-connectivity-cloudflare.md` §2 (hostname routing table)
+**Location:** `10-connectivity-cloudflare.md` §2 (hostname routing table)
 
-**Issue:** The published-routes table in step 08 includes:
+**Issue:** The published-routes table in step 10 includes:
 - `auth.domain.com → http://authentik-server:9000` — Authentik is not deployed until step 15
 - `admin.domain.com → http://admin-ui:8080` — Admin UI is not built until step 17
 
@@ -39,11 +39,11 @@ so there is no Docker→k8s migration. Step 08 §6 was replaced with token-hygie
 guidance (connector notifications + count check). No ordering trap remains.
 
 
-**Location:** `08-connectivity-cloudflare.md` §6
+**Location:** `10-connectivity-cloudflare.md` §6
 
-**Issue:** The entire §6 migration sequence uses `microk8s kubectl create secret`, `microk8s kubectl rollout status`, and `microk8s kubectl apply`. MicroK8s is installed in step 16. At step 08 in the guide sequence there is no MicroK8s cluster. All commands in §6 fail with "microk8s: command not found" or equivalent.
+**Issue:** The entire §6 migration sequence uses `microk8s kubectl create secret`, `microk8s kubectl rollout status`, and `microk8s kubectl apply`. MicroK8s is installed in step 16. At step 10 in the guide sequence there is no MicroK8s cluster. All commands in §6 fail with "microk8s: command not found" or equivalent.
 
-**Impact:** The reader cannot complete this section at step 08. If they follow the guide linearly and skip §6, they may not return to it — leaving `CF_TUNNEL_TOKEN` in the plaintext `.env` file indefinitely.
+**Impact:** The reader cannot complete this section at step 10. If they follow the guide linearly and skip §6, they may not return to it — leaving `CF_TUNNEL_TOKEN` in the plaintext `.env` file indefinitely.
 
 **Fix:** Add a callout box at the top of §6:
 > **⚠ Return here after step 16.** This section migrates the tunnel token to a Kubernetes Secret. MicroK8s must be installed and the `llm-platform` namespace created before any command below will work.
@@ -100,7 +100,7 @@ Step 04 §2 explicitly stores `LITELLM_SALT_KEY` as a Docker secret file in `/et
 `rollout restart deploy/inference`, so the edit actually reaches the running pod.
 
 
-**Location:** `10-models.md` §3
+**Location:** `06-models.md` §3
 
 **Issue:** Step 10 §3 says:
 > Edit `assets/llama-swap-config.yaml`
@@ -109,7 +109,7 @@ Step 04 §1 copies the entire `assets/` directory to `/opt/home-llm/` with `cp -
 
 **Impact:** Reader edits the wrong file. The inference container sees no change; restarting it reloads the `/opt/home-llm/llama-swap-config.yaml` version (unchanged).
 
-**Fix:** Change all references in step 10 §3 to `/opt/home-llm/llama-swap-config.yaml`.
+**Fix:** Change all references in step 06 §3 to `/opt/home-llm/llama-swap-config.yaml`.
 
 ---
 
@@ -193,13 +193,13 @@ The guide has 17 steps. There is no step 29.
 placeholder is gone.
 
 
-**Location:** `06-gateway-litellm.md` §1
+**Location:** `07-gateway-litellm.md` §1
 
 **Issue:** The health check reads:
 > "Run from your Tailscale-connected machine or directly on the server"
 > `curl -s http://<server>:4000/health`
 
-Tailscale is not installed until step 09. At step 06, "from your Tailscale-connected machine" is not actionable. The placeholder `<server>` is not defined in this step's preamble or anywhere in the file.
+Tailscale is not installed until step 09. At step 07, "from your Tailscale-connected machine" is not actionable. The placeholder `<server>` is not defined in this step's preamble or anywhere in the file.
 
 **Impact:** Reader does not know what to substitute for `<server>` and may skip the verification entirely.
 
@@ -218,13 +218,13 @@ Add a note: "(After step 09, you can also run this from any Tailscale-connected 
 `LITELLM_MASTER_KEY=$(microk8s kubectl get secret litellm-credentials -n llm-core -o jsonpath='{.data.master-key}' | base64 -d)`.
 
 
-**Location:** `06-gateway-litellm.md` §2 and §3
+**Location:** `07-gateway-litellm.md` §2 and §3
 
 **Issue:** The key-minting curl commands use `$LITELLM_MASTER_KEY` as a shell variable:
 ```bash
 curl ... -H "Authorization: Bearer $LITELLM_MASTER_KEY" ...
 ```
-The master key is stored as a Docker secret file in `/etc/home-llm/litellm_master_key` — it is never an environment variable. Step 04 mentions the retrieval command ("To retrieve the master key when you need it: `sudo cat /etc/home-llm/litellm_master_key`") but that is easy to miss when re-reading step 06 in isolation, and it doesn't show how to assign the shell variable.
+The master key is stored as a Docker secret file in `/etc/home-llm/litellm_master_key` — it is never an environment variable. Step 04 mentions the retrieval command ("To retrieve the master key when you need it: `sudo cat /etc/home-llm/litellm_master_key`") but that is easy to miss when re-reading step 07 in isolation, and it doesn't show how to assign the shell variable.
 
 **Impact:** The curl commands fail silently (`Authorization: Bearer ` with an empty value) or with 401 if the variable is unset, which is indistinguishable from a misconfigured key.
 

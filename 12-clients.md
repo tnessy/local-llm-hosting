@@ -10,8 +10,8 @@
 >
 > | Placeholder | What it is | Where to find it |
 > |---|---|---|
-> | `<api.domain.com>` | Public API hostname | Configured in step 08 |
-> | `<their-virtual-key>` | Per-friend LiteLLM `sk-...` key | Minted in step 06 for each friend |
+> | `<api.domain.com>` | Public API hostname | Configured in step 10 |
+> | `<their-virtual-key>` | Per-friend LiteLLM `sk-...` key | Minted in step 07 for each friend |
 
 How each persona connects. Two endpoints:
 
@@ -23,7 +23,7 @@ How each persona connects. Two endpoints:
 
 1. Open `https://llm.domain.com`.
 2. Complete the Cloudflare login (Google or email code).
-3. Log in to Open WebUI with the account you created (step 07).
+3. Log in to Open WebUI with the account you created (step 08).
 4. Pick a model (`coder`/`chat`) and chat. First message after an idle period may
    pause briefly (model cold-load).
 
@@ -74,7 +74,7 @@ name = "Home LLM"
 base_url = "https://api.domain.com/v1"
 env_key = "HOME_LLM_KEY"     # export HOME_LLM_KEY=sk-<virtual-key>
 wire_api = "responses"
-# Optional CF service-token headers (if you enabled them in step 08):
+# Optional CF service-token headers (if you enabled them in step 10):
 # http_headers = { "CF-Access-Client-Id" = "...", "CF-Access-Client-Secret" = "..." }
 ```
 
@@ -90,10 +90,10 @@ LiteLLM translates the Anthropic-format requests to the engine.
 
 ## Notes
 
-- One key per friend → revoke/limit individually (step 06).
+- One key per friend → revoke/limit individually (step 07).
 - GUI tools (JetBrains) can't send service-token headers — they rely on the
   bearer key + the API host's WAF rate limit. That's why `api.` uses Access
-  **Bypass** (step 08).
+  **Bypass** (step 10).
 - Switching backend models/engines never changes these client configs.
 
 → Continue to [13 — Verification](13-verification.md).

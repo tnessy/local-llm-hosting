@@ -1,6 +1,6 @@
-# 08 — Connectivity: friends (Cloudflare Tunnel + Access)
+# 10 — Connectivity: friends (Cloudflare Tunnel + Access)
 
-← [07 Open WebUI](07-webui-open-webui.md) · Next: [09 Tailscale](09-connectivity-tailscale.md)
+← [09 Tailscale](09-connectivity-tailscale.md) · Next: [11 Optional services](11-optional-comfyui-tabby.md)
 
 > **Overview:** Configure Cloudflare Tunnel routing and Zero Trust Access policies to expose `llm.domain.com` (Open WebUI) and `api.domain.com` (LiteLLM API) to authorised friends, with email-allow-list authentication enforced at the Cloudflare edge.
 >
@@ -66,7 +66,7 @@ is rejected at Cloudflare's edge.
 
 ## 4. Access on the API (`api.domain.com`) — bypass + key + WAF path blocks
 
-API clients use a single credential: the LiteLLM virtual key (step 06) sent
+API clients use a single credential: the LiteLLM virtual key (step 07) sent
 as `Authorization: Bearer <key>`. `api.domain.com` is therefore **bypassed**
 at CF Access and protected by LiteLLM auth + WAF rules downstream.
 
@@ -97,7 +97,7 @@ admin endpoint not listed here):
 > dedicated block entry. The `(?i)` flag makes matching case-insensitive,
 > preventing capitalisation bypasses (e.g. `/KEY/generate`, `/V1/Chat/Completions`).
 > Admin operations go via a Tailscale-gated `kubectl port-forward` only — never
-> the tunnel (see [step 06](06-gateway-litellm.md)).
+> the tunnel (see [step 07](07-gateway-litellm.md)).
 
 ## 5. Access on the auth endpoint (`auth.domain.com`) — bypass + WAF path allowlist
 
@@ -177,4 +177,4 @@ An *unexpected* extra connector is the primary indicator of a leaked token.
 - `curl https://api.domain.com/health` returns **403 Blocked** (WAF allowlist).
 - `curl https://api.domain.com/KEY/generate` returns **403 Blocked** (case-insensitive match).
 
-→ Continue to [09 — Connectivity: admin (Tailscale)](09-connectivity-tailscale.md).
+→ Continue to [11 — Optional: ComfyUI + Tabby](11-optional-comfyui-tabby.md).

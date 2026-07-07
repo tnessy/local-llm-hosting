@@ -11,7 +11,7 @@
 > | Placeholder | What it is | Where to find it |
 > |---|---|---|
 > | `<tailscale-ip>` | Server's Tailscale IPv4 address | `tailscale ip -4` (from step 09) |
-> | `<domain.com>` | Your registered domain | From step 08 |
+> | `<domain.com>` | Your registered domain | From step 10 |
 
 The 3rd client type: the host spins up **on-demand Linux dev environments**
 (hardened pods) that users reach **from anywhere** via a browser IDE, with
@@ -392,7 +392,7 @@ availability and updates the HTTPRoute atomically.
      the expected template; abort if missing or mismatched (race-condition
      guard — policy must exist before any pod can start).
    - Mint a scoped LiteLLM key (`/key/generate` with `max_budget`, `rpm_limit`,
-     model allowlist — [step 06](06-gateway-litellm.md)).
+     model allowlist — [step 07](07-gateway-litellm.md)).
    - **Write the key alias to `workspaces.litellm_key_alias` and set
      `launched_at = now()` before creating the k8s Secret.** The DB record is
      the authoritative source for revocation — if the orchestrator crashes before
@@ -715,7 +715,7 @@ Workspace pods never use it.
 ## 9. Access (from anywhere)
 
 - Add a **wildcard tunnel route** `*.ws.domain.com → http://traefik.llm-platform.svc.cluster.local:80`
-  in cloudflared config (step 08 pattern).
+  in cloudflared config (step 10 pattern).
 - A **Cloudflare Access** application on `*.ws.domain.com` with an Allow policy
   for `grp-workspaces` (federated to Authentik — [step 15](15-identity-sso.md)).
   Unauthenticated users are rejected at the edge before reaching Traefik.

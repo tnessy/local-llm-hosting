@@ -49,11 +49,11 @@ re-check and closed in the same commit.
 **R2 Fix:** Calico watchdog CronJob (§5) suspends all ws-* Deployments on degradation; snap refresh window pinned to maintenance hours (§1). Bypass via direct kubectl noted as accepted residual; Kyverno admission gate documented as upgrade path.
 
 ### ~~C-2~~ — ✅ FIXED (R1 + R2) — LiteLLM Master Key and Admin Endpoints Exposed on Public api.domain.com
-**Location:** 06-gateway-litellm.md §2–3; 08-connectivity-cloudflare.md §4  
+**Location:** 07-gateway-litellm.md §2–3; 10-connectivity-cloudflare.md §4  
 **Flagged by:** AUTH-3, INGRESS-3  
 **Issue:** The Cloudflare tunnel routes api.domain.com directly to litellm:4000 with no path filtering, making /key/generate, /key/delete, /key/info, and /health reachable from the public internet protected only by LITELLM_MASTER_KEY.  
 **Impact:** Any actor who obtains or brute-forces the master key gains full LiteLLM admin access from the internet: minting unlimited keys, revoking all friend keys, and reading all spend data.  
-**R1 Fix:** WAF blocklist for `^/(key|user|model/info|health)`; Tailscale-only admin note in step 06.  
+**R1 Fix:** WAF blocklist for `^/(key|user|model/info|health)`; Tailscale-only admin note in step 07.  
 **R2 Gaps found:** (a) blocklist missed /v1/key/*, /budget/*, /team/*, /config/*, /spend/*, /model/new, /model/delete; (b) case-sensitive regex allowed /KEY/generate bypass; (c) blocklist is architecturally weaker than allowlist for an evolving API.  
 **R2 Fix:** Replaced blocklist with strict allowlist — only `/v1/(chat/completions|completions|models|responses|messages|embeddings)` are permitted; case-insensitive `(?i)` flag added; all other paths (including /v1/key/*) blocked by default.
 
@@ -76,19 +76,19 @@ re-check and closed in the same commit.
 **R2 Fix:** Removed `delete` from networkpolicies verbs in the per-namespace Role (patch remains for template updates); added Kyverno ClusterPolicy (protect-inference-ingress) that denies DELETE on the inference-ingress NetworkPolicy at the admission layer.
 
 ### ~~C-5~~ — ✅ FIXED (R1 + R2) — Cloudflare Tunnel Token Stored in Plaintext — Compromise Grants Full Ingress Hijack
-**Location:** 04-deploy-stack-ubuntu.md §2; 08-connectivity-cloudflare.md §5  
+**Location:** 04-deploy-stack-ubuntu.md §2; 10-connectivity-cloudflare.md §5  
 **Flagged by:** INGRESS-1  
 **Issue:** CF_TUNNEL_TOKEN is stored in a plaintext .env file; a leaked token lets an attacker register an additional cloudflared connector on the same tunnel and MITM all traffic.  
 **Impact:** A stolen tunnel token enables interception of all friend traffic, capture of Access JWT cookies and LiteLLM keys, and persistent re-entry with no visible indicator.  
 **R1 Fix:** Migrated CF_TUNNEL_TOKEN to k8s Secret in MicroK8s phase; connector notifications mentioned.  
 **R2 Gaps found:** (a) .env cleanup step never instructed — token remained in /opt/home-llm/.env after k8s migration; (b) `docker inspect cloudflared` exposes the token to any docker-group member during the Docker Compose phase; (c) dqlite stores k8s Secrets base64 but unencrypted — host filesystem access yields the token; (d) connector notification was one advisory sentence with no actionable substeps or verification.  
-**R2 Fix:** Added explicit `sed -i` .env cleanup step in step 08 §5 post-migration; added docker inspect exposure warning in step 04 §2; added dqlite encryption note referencing EncryptionConfiguration (cross-ref H-14); expanded connector notifications to numbered substeps with dashboard verification.
+**R2 Fix:** Added explicit `sed -i` .env cleanup step in step 10 §5 post-migration; added docker inspect exposure warning in step 04 §2; added dqlite encryption note referencing EncryptionConfiguration (cross-ref H-14); expanded connector notifications to numbered substeps with dashboard verification.
 
 ---
 ## HIGH
 
 ### H-1 — api.domain.com Has No Cloudflare Access Authentication — Edge Is Fully Bypassed — **ACCEPTED RESIDUAL**
-**Location:** 08-connectivity-cloudflare.md §4; assets/cloudflare-access-notes.md §3  
+**Location:** 10-connectivity-cloudflare.md §4; assets/cloudflare-access-notes.md §3  
 **Flagged by:** AUTH-1, INGRESS-2  
 **Issue:** The Cloudflare Access policy for api.domain.com is set to Bypass/Everyone, so any internet client reaches LiteLLM with zero edge-level identity check; the sole gate is the LiteLLM virtual key, and the per-IP WAF rate limit is trivially circumvented with distributed sources.  
 **Impact:** Attackers can freely probe all LiteLLM endpoints, brute-force virtual keys, and exploit LiteLLM vulnerabilities without passing any identity verification at the edge.  
@@ -164,7 +164,7 @@ re-check and closed in the same commit.
 **Flagged by:** SECRETS-1  
 **Issue:** The guide creates /opt/home-llm/.env containing all service credentials but never sets file permissions, leaving it at the system umask default (typically 644 — world-readable).  
 **Impact:** Any local user or process with filesystem read access can extract CF_TUNNEL_TOKEN, LITELLM_MASTER_KEY, TABBY_API_KEY, and all other secrets from the .env file.  
-**Fix (implemented):** `chmod 600 .env` and `chmod 750 /opt/home-llm` added immediately after `cp .env.example .env` in step 04 §2. All subsequent `.env` touch points verified safe: step 06 updated to use `nano` (not shell redirection) when writing `OPENWEBUI_LITELLM_KEY`; step 08 `sed -i` preserves mode 600 (GNU sed on Ubuntu calls `fchmod()` before rename); `/tmp/cf-token` pre-created at mode 600 with `install -m 600` before the `>` redirect.
+**Fix (implemented):** `chmod 600 .env` and `chmod 750 /opt/home-llm` added immediately after `cp .env.example .env` in step 04 §2. All subsequent `.env` touch points verified safe: step 07 updated to use `nano` (not shell redirection) when writing `OPENWEBUI_LITELLM_KEY`; step 10 `sed -i` preserves mode 600 (GNU sed on Ubuntu calls `fchmod()` before rename); `/tmp/cf-token` pre-created at mode 600 with `install -m 600` before the `>` redirect.
 
 ### ~~H-11~~ — ✅ FIXED — No .gitignore for .env — Risk of Accidental Secret Commit
 **Location:** 04-deploy-stack-ubuntu.md §2; assets/.env.example  
@@ -321,7 +321,7 @@ Workspace hostname (`<slug>.ws.domain.com`) is a stable alias set once at first 
 **Fix (implemented):** `inference-ingress` replaced with `inference-policy` (policyTypes: [Ingress, Egress]). Egress restricted to kube-dns:53 only — the inference process has no legitimate outbound connections beyond DNS resolution. Fixed as part of the H-2 default-deny + explicit-allow overhaul.
 
 ### M-4 — api.domain.com Has Cloudflare Access Bypass with Only IP-Based Rate Limiting
-**Location:** 08-connectivity-cloudflare.md §4; assets/cloudflare-access-notes.md §3–4  
+**Location:** 10-connectivity-cloudflare.md §4; assets/cloudflare-access-notes.md §3–4  
 **Flagged by:** NET-11, AUTH-2, SECRETS-20, HOST-18, INGRESS-8, INGRESS-14  
 **Issue:** The api.domain.com Cloudflare Access policy is set to Bypass / Everyone, meaning no edge identity check is performed; the only protections are LiteLLM virtual-key authentication and a per-IP WAF rate limit of 60 req/min that is trivially bypassed with multiple IPs.  
 **Impact:** The entire security of the public API rests on LiteLLM key secrecy; a leaked key is immediately usable from anywhere in the world, there is no edge revocation, and LiteLLM pre-auth vulnerabilities are directly exploitable from the public internet.  
@@ -356,7 +356,7 @@ Workspace hostname (`<slug>.ws.domain.com`) is a stable alias set once at first 
 **Fix:** Apply a NetworkPolicy to the Authentik pod permitting ingress only from the orchestrator and cloudflared pods, restrict its admin UI to kubectl port-forward over Tailscale only (never route it through the tunnel), and add a Tailscale ACL entry limiting port 9000 to autogroup:admin.
 
 ### M-9 — Open WebUI Uses a Single Shared LiteLLM Key with No Per-User Budget or Rate Limit
-**Location:** 06-gateway-litellm.md §2; 07-webui-open-webui.md  
+**Location:** 07-gateway-litellm.md §2; 08-webui-open-webui.md  
 **Flagged by:** AUTH-4, AUTH-20  
 **Issue:** All Open WebUI users share one LiteLLM virtual key (OPENWEBUI_LITELLM_KEY) which is minted with no max_budget or rpm_limit, making it impossible to attribute usage to individual users or prevent one user from exhausting the shared budget.  
 **Impact:** A single runaway or malicious UI session can monopolize the GPU indefinitely and lock out all other UI users, and per-user spend tracking and key revocation are impossible without separate keys.  
@@ -370,14 +370,14 @@ Workspace hostname (`<slug>.ws.domain.com`) is a stable alias set once at first 
 **Fix:** Bind workspace namespaces and PVCs to the Authentik immutable `sub` claim rather than `preferred_username`, and consider persisting only specific subdirectories (e.g. ~/projects) rather than the entire home directory to limit the blast radius of a compromised session.
 
 ### ~~M-11~~ — ✅ ADDRESSED (Admin UI) — Removing User from grp-api in Authentik Does Not Revoke Their LiteLLM Virtual Key
-**Location:** 15-identity-sso.md; 06-gateway-litellm.md  
+**Location:** 15-identity-sso.md; 07-gateway-litellm.md  
 **Flagged by:** AUTH-8  
 **Issue:** LiteLLM virtual keys are minted manually and are not session-bound; removing a user from grp-api in Authentik does not trigger any key revocation in LiteLLM, so the user retains valid API access indefinitely.  
 **Impact:** A departing friend whose Authentik account is removed can continue making API calls and consuming GPU budget until an admin manually calls `/key/delete`, contradicting the documented claim that group removal 'revokes access everywhere on next auth'.  
 **Fix (addressed by design):** The Admin UI (step 17) makes user deprovision a single operation that atomically revokes the LiteLLM key, removes the Authentik group membership, and deletes the Open WebUI account. No separate manual step required. The deprovision flow is documented in 17-admin-ui.md.
 
 ### M-12 — Open WebUI OIDC SSO Is Optional — Authentik Removal Does Not Disable WebUI Account
-**Location:** 15-identity-sso.md §Setup outline step 5; 07-webui-open-webui.md; 08-connectivity-cloudflare.md §3  
+**Location:** 15-identity-sso.md §Setup outline step 5; 08-webui-open-webui.md; 10-connectivity-cloudflare.md §3  
 **Flagged by:** AUTH-9, AUTH-14  
 **Issue:** Open WebUI uses its own local account store by default instead of Authentik OIDC SSO, so removing a user from Authentik leaves their WebUI account active; combined with a 24-hour Cloudflare Access session, a removed user can continue chatting for up to a full day.  
 **Impact:** A friend who should be cut off retains full conversational UI access until both their CF Access session expires and their Open WebUI account is manually deleted — an identity lifecycle gap that is easy to miss under operational pressure.  
@@ -408,7 +408,7 @@ Workspace hostname (`<slug>.ws.domain.com`) is a stable alias set once at first 
 **Fix:** Use a distinct prefix for the master key (e.g. `sk-admin-`) to differentiate it from virtual keys, enabling WAF rules that block the admin prefix on the public api.domain.com endpoint while allowing normal virtual key traffic.
 
 ### M-16 — Cloudflare Access Session Duration of 24h Gives Removed Users Extended Access Window
-**Location:** 08-connectivity-cloudflare.md §3; assets/cloudflare-access-notes.md §2  
+**Location:** 10-connectivity-cloudflare.md §3; assets/cloudflare-access-notes.md §2  
 **Flagged by:** AUTH-14  
 **Issue:** The Cloudflare Access session is configured for 24 hours, so a user removed from the allowlist retains an active browser session for up to a full day.  
 **Impact:** Combined with the lack of mandatory Open WebUI OIDC SSO (M-12), a departing user may retain UI access for the maximum session window, especially dangerous if revocation is urgent.  
@@ -425,7 +425,7 @@ Workspace hostname (`<slug>.ws.domain.com`) is a stable alias set once at first 
 **Fix:** Remove `root` from the Tailscale SSH allowed users, require sudo escalation from a non-root account for all administrative actions, and enable Tailscale device posture checks to gate enrollment of admin devices.
 
 ### M-18 — Wildcard Workspace Tunnel Route Combined with Non-Unique IDs Risks Hostname Collision and Session Confusion
-**Location:** 16-workspaces.md §9; 08-connectivity-cloudflare.md §2  
+**Location:** 16-workspaces.md §9; 10-connectivity-cloudflare.md §2  
 **Flagged by:** NET-18, INGRESS-6  
 **Issue:** The *.ws.domain.com wildcard tunnel route hands all workspace routing to Traefik, and workspace IDs are username-derived rather than cryptographically random, creating a risk of hostname collision if a username is recycled or an ID is reused for a different user.  
 **Impact:** A user whose workspace was destroyed and whose ID is reassigned to a new user could — via cached bookmarks or IDE settings — reach the wrong workspace pod; a Traefik routing bug on the wildcard amplifies this into cross-user session access.  
@@ -729,7 +729,7 @@ Workspace hostname (`<slug>.ws.domain.com`) is a stable alias set once at first 
 **Fix:** Add `--set dashboard.enabled=false` (or equivalent) to the Traefik Helm install, and if the dashboard is required for operations, protect it with basic auth middleware and restrict it to Tailscale access only via a dedicated NetworkPolicy.
 
 ### M-56 — Cloudflare Access Session Cookie Scope for Wildcard *.ws.domain.com May Allow Cross-Workspace Cookie Reuse
-**Location:** 08-connectivity-cloudflare.md §3; 15-identity-sso.md §3  
+**Location:** 10-connectivity-cloudflare.md §3; 15-identity-sso.md §3  
 **Flagged by:** INGRESS-9  
 **Issue:** A Cloudflare Access JWT issued for one ws-* subdomain under the wildcard *.ws.domain.com application may be accepted for any other subdomain in the same wildcard application; a compromised workspace running JavaScript in the code-server context can read and exfiltrate this cookie.  
 **Impact:** A stolen CF Access JWT from one workspace could grant access to another workspace subdomain belonging to the same or a different user, valid for up to the configured 24-hour session duration.  
@@ -746,7 +746,7 @@ Workspace hostname (`<slug>.ws.domain.com`) is a stable alias set once at first 
 ## INFO
 
 ### M-58 — LiteLLM /health and /v1/models Endpoints Publicly Accessible — Software and Model Enumeration
-**Location:** 06-gateway-litellm.md §1; 08-connectivity-cloudflare.md §4  
+**Location:** 07-gateway-litellm.md §1; 10-connectivity-cloudflare.md §4  
 **Flagged by:** AUTH-17, INGRESS-14  
 **Issue:** The /health and /v1/models endpoints on api.domain.com are unauthenticated and publicly accessible (CF Access is bypassed), disclosing that LiteLLM is the gateway, its version, and the full list of configured model names.  
 **Impact:** Version disclosure enables targeted exploitation of known LiteLLM CVEs; model enumeration reveals the full inference stack to an attacker conducting reconnaissance before attempting key brute-force or API abuse.  
@@ -797,7 +797,7 @@ Workspace hostname (`<slug>.ws.domain.com`) is a stable alias set once at first 
 **Fix:** Add `logging: driver: json-file options: max-size: '10m' max-file: '5'` to each docker-compose service, and schedule a periodic `sha256sum litellm.db` checksum record against a baseline to detect unexpected database modifications.
 
 ### M-64 — No Integrity Verification for Downloaded EXL2 Model Weights
-**Location:** 05-inference-tabbyapi-llamaswap.md; README.md step 10 reference  
+**Location:** 05-inference-tabbyapi-llamaswap.md; README.md step 06 reference  
 **Flagged by:** OPS-17  
 **Issue:** No guidance is provided on recording or verifying the SHA-256 hashes of downloaded EXL2 model weight files; Hugging Face repositories can be modified after an initial download, and no provenance log is maintained.  
 **Impact:** Adversarially modified model weights could cause systematically biased or information-leaking inference outputs for all users, and detection is difficult because a poisoned model appears functionally normal for most queries.  

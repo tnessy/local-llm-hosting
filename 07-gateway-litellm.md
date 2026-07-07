@@ -1,6 +1,6 @@
-# 06 — API gateway: LiteLLM
+# 07 — API gateway: LiteLLM
 
-← [05 Inference](05-inference-tabbyapi-llamaswap.md) · Next: [07 Open WebUI](07-webui-open-webui.md)
+← [06 Models](06-models.md) · Next: [08 Open WebUI](08-webui-open-webui.md)
 
 > **Overview:** Configure LiteLLM as the single API gateway — issue a virtual key per friend with spend limits and model allowlists, enable dialect translation so Codex (Responses API) and Claude Code (Anthropic Messages) route to the OpenAI-compatible inference engine, and wire up the LiteLLM admin UI.
 >
@@ -20,7 +20,7 @@ Config: [`assets/litellm-config.yaml`](assets/litellm-config.yaml).
 > (`/key/*`, `/user/*`, `/model/info`, `/health`) run through a local
 > `kubectl port-forward`, which is gated by the Tailscale-restricted kube-apiserver
 > ([step 09](09-connectivity-tailscale.md)). These paths are also blocked at the
-> Cloudflare WAF on `api.domain.com` — see [step 08](08-connectivity-cloudflare.md).
+> Cloudflare WAF on `api.domain.com` — see [step 10](10-connectivity-cloudflare.md).
 > Never run admin calls against the public hostname.
 
 ## 1. Confirm it's running
@@ -116,4 +116,4 @@ via `secretKeyRef`.
 > # Every entry must show valueFrom.secretKeyRef — never a literal value field
 > ```
 
-→ Continue to [07 — Open WebUI](07-webui-open-webui.md).
+→ Continue to [08 — Open WebUI](08-webui-open-webui.md).

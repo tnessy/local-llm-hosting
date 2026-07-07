@@ -171,7 +171,7 @@ from the pod spec by anything with `pods:get`.
 ```bash
 # LiteLLM admin (master) + virtual-key salt. Master key must start with "sk-".
 # Both are printed so you can record them — the master key mints friend keys
-# (step 06); the salt key is PERMANENT and required to restore litellm.db (step 14).
+# (step 07); the salt key is PERMANENT and required to restore litellm.db (step 14).
 LITELLM_MASTER_KEY="sk-$(openssl rand -hex 32)"
 LITELLM_SALT_KEY="$(openssl rand -hex 32)"
 echo "LITELLM_MASTER_KEY=$LITELLM_MASTER_KEY"   # copy to your password manager
@@ -184,7 +184,7 @@ microk8s kubectl create secret generic tabby-credentials -n llm-core --from-lite
 # PostgreSQL password for LiteLLM's database (litellm requires PostgreSQL — postgres.yaml)
 microk8s kubectl create secret generic litellm-postgres-credentials -n llm-core --from-literal=password="$(openssl rand -hex 24)"
 
-# Open WebUI: session-signing secret now; the litellm-key is minted in step 06,
+# Open WebUI: session-signing secret now; the litellm-key is minted in step 07,
 # so seed it empty and patch it there.
 microk8s kubectl create secret generic openwebui-credentials -n llm-core --from-literal=secret-key="$(openssl rand -hex 32)" --from-literal=litellm-key=""
 
