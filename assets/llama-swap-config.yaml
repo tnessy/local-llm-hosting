@@ -3,7 +3,10 @@
 # process (loading the EXL2 weights into VRAM), routes the request, and later
 # unloads it so a different model can take the GPU. See step 05.
 #
-# Placeholders <...> are finalized in step 10 once the GPU/models are chosen.
+# Placeholders <...> are finalized in step 05 once the GPU/models are chosen.
+# TabbyAPI has no --api-key flag; it binds loopback and is reached only by
+# llama-swap in-pod, so we pass --disable-auth true and rely on the NetworkPolicy
+# (only LiteLLM can reach inference:8080) as the real boundary. See step 05.
 
 # Seconds an idle backend stays loaded before llama-swap unloads it (frees VRAM).
 ttl: 1800
@@ -13,11 +16,11 @@ models:
   "coder":
     # TabbyAPI launches on its default port; llama-swap proxies to it.
     cmd: >
-      python3 /app/tabbyAPI/main.py
+      python3 /app/main.py
       --model-dir /models
       --model-name <Qwen3-Coder-30B-exl2>
       --max-seq-len 65536
-      --api-key ${env.TABBY_API_KEY}
+      --disable-auth true
       --host 127.0.0.1 --port 5001
     proxy: "http://127.0.0.1:5001"
     # Health endpoint llama-swap polls to know the backend is ready.
@@ -26,11 +29,11 @@ models:
   # ── General chat model ────────────────────────────────────────────────────
   "chat":
     cmd: >
-      python3 /app/tabbyAPI/main.py
+      python3 /app/main.py
       --model-dir /models
       --model-name <general-chat-exl2>
       --max-seq-len 32768
-      --api-key ${env.TABBY_API_KEY}
+      --disable-auth true
       --host 127.0.0.1 --port 5002
     proxy: "http://127.0.0.1:5002"
     checkEndpoint: "/health"

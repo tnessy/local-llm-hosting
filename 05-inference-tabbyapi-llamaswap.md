@@ -83,11 +83,25 @@ fast/private 24 GB-tier coder, cloud for the frontier giants.
 
 ## 2. Download EXL2 weights to the model store
 
-EXL2 models live as folders. Put them under the NVMe model dir from step 03
-(`/srv/models`). With the huggingface CLI on the host:
+EXL2 models live as folders under the NVMe model dir from step 03 (`/srv/models`).
+
+**Install the HuggingFace CLI on the host** — the `huggingface_hub` package
+provides the `hf` command (the older `huggingface-cli` is deprecated). Install via
+`pipx`, since Ubuntu blocks system-wide `pip install` (PEP 668), then log in with
+your `<HF_TOKEN>` (needed for gated repos and to dodge anonymous rate limits):
 
 ```bash
-huggingface-cli download <org>/<model-exl2> --local-dir /srv/models/<local-folder-name>
+sudo apt install -y pipx
+pipx install huggingface_hub
+pipx ensurepath   # then open a new shell (or: source ~/.bashrc)
+hf auth login     # paste your <HF_TOKEN> when prompted
+```
+
+**Download the weights.** Some quantizers publish each bit-rate as a separate
+branch, so add `--revision <bpw>` when the repo is organized that way:
+
+```bash
+hf download <org>/<model-exl2> --local-dir /srv/models/<local-folder-name>
 ```
 
 The folder name is what you reference as `--model-name` in the config.
@@ -155,11 +169,26 @@ the backend).
 
 ## Verification
 
+Test through LiteLLM from the host — that exercises the real client path
+(LiteLLM → inference) and uses the host's `curl` (the `litellm` and `inference`
+images ship none, so `kubectl exec … -- curl` fails). Leave a port-forward running
+in one terminal:
+
 ```bash
-microk8s kubectl exec -n llm-core deploy/litellm -- curl -s http://inference:8080/v1/models
+microk8s kubectl port-forward -n llm-core svc/litellm 4000:4000
 ```
 
-Lists your real `coder`/`chat` models. A first chat request triggers a cold load
-(watch `microk8s kubectl logs -f -n llm-core deploy/inference`), then responds.
+In another terminal, read the master key from the Secret and fire a completion —
+the first request triggers the ~5–30 s cold load (watch
+`microk8s kubectl logs -f -n llm-core deploy/inference` and `nvidia-smi`):
+
+```bash
+LITELLM_MASTER_KEY=$(microk8s kubectl get secret litellm-credentials -n llm-core -o jsonpath='{.data.master-key}' | base64 -d)
+curl -s http://localhost:4000/v1/chat/completions -H "Authorization: Bearer $LITELLM_MASTER_KEY" -H "Content-Type: application/json" -d '{"model":"coder","messages":[{"role":"user","content":"say hi"}]}'
+```
+
+A completion means the model loaded and the full path works. (LiteLLM's
+`/v1/models` only lists *configured* models, so it isn't proof the engine loaded —
+the completion is.)
 
 → Continue to [06 — LiteLLM gateway](06-gateway-litellm.md).

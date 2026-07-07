@@ -30,6 +30,10 @@
 4. **Tailscale account.** Sign up (free Personal plan is fine) at tailscale.com.
    You'll install it on the server and your own devices in
    [step 08](08-connectivity-tailscale.md).
+5. **HuggingFace account + token.** Create an account at huggingface.co and a
+   **read** access token (Settings → Access Tokens). You'll download model weights
+   with it in [step 05](05-inference-tabbyapi-llamaswap.md); the token is needed
+   for gated repos and avoids anonymous rate limits.
 
 ## Plan your two subdomains
 
