@@ -34,25 +34,26 @@ data:
       - url: http://<grafana-host-lan-ip>:3100/loki/api/v1/push
     scrape_configs:
       # MicroK8s pod logs — all cluster workloads (litellm, open-webui, inference,
-      # cloudflared, traefik, authentik, workspaces). The `container` label set
-      # below is what the alert rules key on (e.g. {container="litellm"}).
+      # cloudflared, traefik, authentik, workspaces). namespace/pod/container are
+      # extracted from the log FILE PATH via pipeline_stages (relabel_configs can't
+      # — they see the static __path__ glob, not each expanded file). The alert
+      # rules key on these labels (e.g. {container="litellm"}, {namespace="llm-core"}).
+      # Pod dir layout: /var/log/pods/<namespace>_<pod>_<uid>/<container>/<n>.log
       - job_name: kubernetes
         static_configs:
           - targets: [localhost]
             labels:
               job: kubernetes
-              __path__: /var/log/pods/**/*.log
+              __path__: /var/log/pods/*/*/*.log
         pipeline_stages:
           - cri: {}
-        relabel_configs:
-          - source_labels: [__path__]
-            regex: '/var/log/pods/([^_/]+)_.+/([^/]+)/.*'
-            target_label: namespace
-            replacement: '$1'
-          - source_labels: [__path__]
-            regex: '/var/log/pods/[^/]+/([^/]+)/.*'
-            target_label: container
-            replacement: '$1'
+          - regex:
+              source: filename
+              expression: '^/var/log/pods/(?P<namespace>[^_]+)_(?P<pod>[^_]+)_[^/]+/(?P<container>[^/]+)/[0-9]+\.log$'
+          - labels:
+              namespace:
+              pod:
+              container:
 ---
 apiVersion: apps/v1
 kind: DaemonSet

@@ -17,8 +17,11 @@
 
 Two stateful volumes hold the crown jewels:
 
-- **`openwebui-data`** — user accounts, per-user keys, chat history.
-- **`litellm-db`** — virtual keys, budgets, spend.
+- **`openwebui-data`** — user accounts, per-user keys, chat history (SQLite). Most
+  of the volume is a re-downloadable model `cache/` — **exclude it** (≈800 MB of
+  noise vs. a couple MB of real data).
+- **`litellm-postgres-data`** — LiteLLM's **PostgreSQL** DB: virtual keys, budgets,
+  spend. Backed up with `pg_dump`, not a file tar.
 
 > **`LITELLM_SALT_KEY` and `litellm.db` are inseparable.** The salt key hashes
 > every virtual key in the database — restoring the database without the matching
@@ -45,25 +48,25 @@ no encrypted backup can be restored.
 
 ### Run backups
 
-Archives are GPG-encrypted before hitting disk. Run on a schedule or before
-any major maintenance:
+A root cron job runs both backups nightly, GPG-encrypted, with 30-day retention.
+LiteLLM's half is a **`pg_dump`** of `litellm-postgres` (transactionally consistent
+— no need to stop the pod). Open WebUI's half tars its PVC but **excludes `./cache`**
+(the re-downloadable embedding/model cache — otherwise the archive is ~800 MB
+instead of a couple MB).
 
-Tar each PVC from inside its running pod and pipe straight into GPG:
+The script is version-controlled at [`assets/llm-backup.sh`](assets/llm-backup.sh).
+Install it root-only (run from the repo checkout, e.g. `/opt/home-llm`):
 
 ```bash
-BACKUP_DATE=$(date +%F)
-
-# Open WebUI data (accounts, per-user keys, chats)
-microk8s kubectl exec -n llm-core deploy/open-webui -- tar cz -C /app/backend/data . | sudo gpg --batch --symmetric --cipher-algo AES256 --passphrase-file /root/.backup-passphrase --output /srv/backups/openwebui-${BACKUP_DATE}.tgz.gpg
-
-# LiteLLM DB (virtual keys, budgets, spend)
-microk8s kubectl exec -n llm-core deploy/litellm -- tar cz -C /app/db . | sudo gpg --batch --symmetric --cipher-algo AES256 --passphrase-file /root/.backup-passphrase --output /srv/backups/litellm-${BACKUP_DATE}.tgz.gpg
+sudo install -m 700 -o root -g root assets/llm-backup.sh /root/llm-backup.sh
 ```
 
-> Run backups during low activity — the SQLite DB is copied live. For a
-> point-in-time-consistent copy, scale LiteLLM to zero first
-> (`microk8s kubectl scale deploy/litellm -n llm-core --replicas=0`), back up via
-> a temporary pod mounting the `litellm-db` PVC, then scale back to 1.
+Schedule it (daily 04:00, clear of the 03:00 auto-reboot window) and test once:
+
+```bash
+echo '0 4 * * * root /root/llm-backup.sh >> /var/log/llm-backup.log 2>&1' | sudo tee /etc/cron.d/llm-backup > /dev/null
+sudo /root/llm-backup.sh && sudo ls -la /srv/backups
+```
 
 > **`LITELLM_SALT_KEY` backup:** the salt key lives in the `litellm-credentials`
 > Kubernetes Secret (encrypted at rest — [step 04 §2](04-deploy-stack-ubuntu.md)),
@@ -76,21 +79,25 @@ microk8s kubectl exec -n llm-core deploy/litellm -- tar cz -C /app/db . | sudo g
 > Keep it off `/srv/backups` — storing the key beside the encrypted archives halves
 > the protection if that disk is stolen.
 
-### Retention
-
-```bash
-# Remove archives older than 30 days — run after each backup session, or via cron
-sudo find /srv/backups -name '*.tgz.gpg' -mtime +30 -delete
-```
-
 ### Restore
 
-```bash
-# Restore the DB into the running pod, then restart litellm to reload it cleanly
-sudo gpg --batch --decrypt --passphrase-file /root/.backup-passphrase --output - /srv/backups/litellm-2026-01-15.tgz.gpg | microk8s kubectl exec -n llm-core -i deploy/litellm -- tar xz -C /app/db
+Retention (30-day prune) is handled inside the script above. To restore, decrypt
+and pipe into the target pod. LiteLLM restores into a **fresh/empty** `litellm`
+database (recreate the `litellm-postgres-data` PVC first if restoring after a loss;
+piping a dump over a populated DB will conflict on existing objects):
 
+```bash
+# LiteLLM (PostgreSQL) — decrypt → psql inside the postgres pod
+sudo gpg --batch --decrypt --passphrase-file /root/.backup-passphrase /srv/backups/litellm-pg-2026-01-15.sql.gpg | microk8s kubectl exec -n llm-core -i deploy/litellm-postgres -- sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 microk8s kubectl rollout restart deploy/litellm -n llm-core
+
+# Open WebUI — decrypt → untar into the data dir
+sudo gpg --batch --decrypt --passphrase-file /root/.backup-passphrase /srv/backups/openwebui-2026-01-15.tgz.gpg | microk8s kubectl exec -n llm-core -i deploy/open-webui -- tar xz -C /app/backend/data
+microk8s kubectl rollout restart deploy/open-webui -n llm-core
 ```
+
+> Restoring LiteLLM's DB requires the matching **`LITELLM_SALT_KEY`** (above) —
+> without it every restored virtual key is unverifiable and must be re-issued.
 
 ## Updates
 
@@ -222,7 +229,8 @@ name: monitoring
 
 services:
   loki:
-    image: grafana/loki:2.9.0       # pin to digest — step 04 §4 procedure
+    image: grafana/loki:3.7.3       # 3.x; pin to digest (step 04 §6). The config
+                                    # below is 3.x-structured (explicit storage_config).
     container_name: loki
     restart: unless-stopped
     ports:
@@ -278,14 +286,10 @@ server:
   http_listen_port: 3100
 
 common:
+  instance_addr: 127.0.0.1
   path_prefix: /loki
-  storage:
-    filesystem:
-      chunks_directory: /loki/chunks
-      rules_directory: /loki/rules
   replication_factor: 1
   ring:
-    instance_addr: 127.0.0.1
     kvstore:
       store: inmemory
 
@@ -299,14 +303,20 @@ schema_config:
         prefix: index_
         period: 24h
 
-limits_config:
-  retention_period: 2160h   # 90 days
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/tsdb-index
+    cache_location: /loki/tsdb-cache
+  filesystem:
+    directory: /loki/chunks
 
 compactor:
   working_directory: /loki/compactor
-  compaction_interval: 10m
   retention_enabled: true
-  retention_delete_delay: 2h
+  delete_request_store: filesystem   # required for retention on Loki 3.x
+
+limits_config:
+  retention_period: 2160h   # 90 days
 ```
 
 Create `/opt/monitoring/prometheus.yml` — replace `<llm-server-lan-ip>`:
@@ -318,7 +328,7 @@ global:
 scrape_configs:
   - job_name: trivy-operator
     static_configs:
-      - targets: ['<llm-server-lan-ip>:32000']   # Trivy NodePort — set up in §3
+      - targets: ['<llm-server-lan-ip>:32001']   # Trivy NodePort — set up in §3
 ```
 
 Bring up the stack:
@@ -361,11 +371,12 @@ Expose the metrics endpoint as a NodePort so the Prometheus on the monitoring ho
 microk8s kubectl apply -f assets/k8s/monitoring/trivy-metrics-nodeport.yaml
 ```
 
-Port 32000 is reachable at `<llm-server-lan-ip>:32000` from any machine on the LAN. If you want to restrict it to the monitoring host only, add a UFW rule on the LLM server:
+The NodePort is **32001** (32000 is already taken by the MicroK8s registry). UFW's
+default-deny inbound (step 02) blocks it, so Prometheus can't scrape until you
+explicitly **allow the monitoring host** on the LLM server:
 
 ```bash
-sudo ufw allow from <grafana-host-lan-ip> to any port 32000
-sudo ufw deny 32000
+sudo ufw allow from <grafana-host-lan-ip> to any port 32001
 ```
 
 View scan results manually:
@@ -401,9 +412,10 @@ Open Grafana at `http://<grafana-host-lan-ip>:3000`.
 
 **Alert rules (Alerting → Alert rules → New alert rule):**
 
-*LiteLLM 401 spike* — more than 0.5 auth failures/second over 5 minutes (data source: Loki):
+*LiteLLM 401 spike* — more than 0.5 auth failures/second over 5 minutes (data source: Loki).
+Verify the match string against real logs first (`{container="litellm"} |= "401"` in Explore):
 ```
-sum(rate({container="litellm"} |= "\" 401" [5m])) > 0.5
+sum(rate({container="litellm"} |= "401" [5m])) > 0.5
 ```
 
 *Authentik failed auth spike* — more than 5 failed logins in 5 minutes (Loki):
@@ -411,19 +423,24 @@ sum(rate({container="litellm"} |= "\" 401" [5m])) > 0.5
 count_over_time({container="authentik-server"} |= "Failed to authenticate" [5m]) > 5
 ```
 
-*Trivy image CRITICAL CVE* — any CRITICAL CVE found across cluster images (data source: Prometheus):
+*Trivy image CRITICAL CVE* — any CRITICAL CVE found across cluster images (data source:
+Prometheus). **Note the severity casing:** the Trivy _Operator_ uses **title-case**
+(`Critical`/`High`) in its metric labels — match values are case-sensitive, so
+`severity="CRITICAL"` silently returns nothing:
 ```
-sum(trivy_image_vulnerabilities{severity="CRITICAL"}) > 0
+sum(trivy_image_vulnerabilities{severity="Critical"}) > 0
 ```
 
 *Trivy image HIGH CVE new* — HIGH CVE count increased in the last hour (Prometheus):
 ```
-increase(trivy_image_vulnerabilities{severity="HIGH"}[1h]) > 0
+increase(trivy_image_vulnerabilities{severity="High"}[1h]) > 0
 ```
 
-*Host OS CVE found* — Trivy host scan output contains CRITICAL or HIGH; 25 h window covers the nightly cadence (Loki):
+*Host OS CVE found* — Trivy host scan output contains CRITICAL; 25 h window covers the
+nightly cadence (Loki). The Trivy _CLI_ table output is **uppercase**, but a
+case-insensitive match (`(?i)`) is robust either way:
 ```
-count_over_time({namespace="trivy-system", container="trivy"} |= "CRITICAL" [25h]) > 0
+count_over_time({namespace="trivy-system", container="trivy"} |~ "(?i)critical" [25h]) > 0
 ```
 
 *Promtail canary* — no pod logs arriving from the LLM server for 15 minutes (Loki); fires on monitoring pipeline failure or server downtime:

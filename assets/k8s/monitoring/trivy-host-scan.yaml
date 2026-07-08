@@ -28,7 +28,9 @@ spec:
           containers:
           - name: trivy
             image: aquasec/trivy:0.48.0   # pin to digest — step 04 §6
-            args: [fs, --severity, HIGH,CRITICAL, --format, table, /host]
+            # NB: "HIGH,CRITICAL" MUST be quoted — unquoted, YAML splits it on the
+            # comma into two args and Trivy just prints usage instead of scanning.
+            args: ["fs", "--severity", "HIGH,CRITICAL", "--format", "table", "/host"]
             volumeMounts:
             - name: host-root
               mountPath: /host

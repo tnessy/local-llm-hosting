@@ -1,6 +1,8 @@
-# NodePort exposing Trivy Operator's Prometheus metrics (:8080) as :32000, so the
-# Prometheus on the external monitoring host can scrape it. Applied in step 14 §3
+# NodePort exposing Trivy Operator's Prometheus metrics (:8080) as :32001, so the
+# Prometheus on the external monitoring host can scrape it. Applied in step 13 §3
 # after `microk8s helm3 install trivy-operator`.
+# NOTE: 32001, NOT 32000 — the MicroK8s registry addon already owns NodePort 32000
+# (localhost:32000), and two NodePort services can't share a port.
 apiVersion: v1
 kind: Service
 metadata:
@@ -13,4 +15,4 @@ spec:
   ports:
   - port: 80
     targetPort: 8080
-    nodePort: 32000
+    nodePort: 32001
