@@ -1,17 +1,16 @@
-# Authentik NetworkPolicies (llm-platform). Apply in step 15 once the Authentik
+# Authentik NetworkPolicies (llm-platform). Apply in step 14 once the Authentik
 # Helm release is deployed. Layers on top of the llm-platform default-deny
 # baseline created in step 04.
 #
-# The label selectors match the official Authentik Helm chart defaults. Verify
-# with `microk8s kubectl get pods -n llm-platform --show-labels` before applying
-# if you use a custom chart/version.
-#
-# Ingress from traefik/orchestrator/admin-ui is already permitted by the
-# traefik-policy egress (step 04); the server-policy below is the matching
-# ingress-side allow.
+# Chart = authentik/authentik 2026.5.x: server + worker + BUNDLED Bitnami
+# PostgreSQL. NOTE: authentik REMOVED Redis entirely in 2025.10 — there is no
+# Redis pod, so no Redis policy. The bundled Postgres carries BITNAMI labels
+# (app.kubernetes.io/name=postgresql, app.kubernetes.io/instance=authentik), NOT
+# authentik's labels. Verify with:
+#   microk8s kubectl get pods -n llm-platform --show-labels
 
-# authentik-server: ingress from traefik + orchestrator + admin-ui;
-# egress to postgres + redis + internet (email/OAuth) + dns
+# authentik-server: ingress from traefik + orchestrator + admin-ui (pod :9000);
+# egress to postgres + internet (email/OAuth) + dns
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -38,21 +37,14 @@ spec:
     - port: 9000
       protocol: TCP
   egress:
+  # Bundled Bitnami Postgres (labels are name=postgresql, instance=authentik)
   - to:
     - podSelector:
         matchLabels:
-          app.kubernetes.io/name: authentik
-          app.kubernetes.io/component: postgresql
+          app.kubernetes.io/name: postgresql
+          app.kubernetes.io/instance: authentik
     ports:
     - port: 5432
-      protocol: TCP
-  - to:
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/name: authentik
-          app.kubernetes.io/component: redis
-    ports:
-    - port: 6379
       protocol: TCP
   # External email delivery (SMTP/TLS) and any external OAuth provider
   - to:
@@ -84,7 +76,7 @@ spec:
     - port: 53
       protocol: TCP
 ---
-# authentik-worker: no ingress; egress to postgres + redis + internet + dns
+# authentik-worker: no ingress; egress to postgres + internet + dns
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -100,18 +92,10 @@ spec:
   - to:
     - podSelector:
         matchLabels:
-          app.kubernetes.io/name: authentik
-          app.kubernetes.io/component: postgresql
+          app.kubernetes.io/name: postgresql
+          app.kubernetes.io/instance: authentik
     ports:
     - port: 5432
-      protocol: TCP
-  - to:
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/name: authentik
-          app.kubernetes.io/component: redis
-    ports:
-    - port: 6379
       protocol: TCP
   - to:
     - ipBlock:
@@ -142,7 +126,7 @@ spec:
     - port: 53
       protocol: TCP
 ---
-# authentik-postgres: ingress from server + worker only; no external egress
+# authentik-postgres (bundled Bitnami): ingress from server + worker only; egress dns
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -151,8 +135,8 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: authentik
-      app.kubernetes.io/component: postgresql
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: authentik
   policyTypes: [Ingress, Egress]
   ingress:
   - from:
@@ -178,40 +162,5 @@ spec:
     ports:
     - port: 53
       protocol: UDP
----
-# authentik-redis: ingress from server + worker only; no external egress
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: authentik-redis-policy
-  namespace: llm-platform
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: authentik
-      app.kubernetes.io/component: redis
-  policyTypes: [Ingress, Egress]
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/name: authentik
-          app.kubernetes.io/component: server
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/name: authentik
-          app.kubernetes.io/component: worker
-    ports:
-    - port: 6379
-      protocol: TCP
-  egress:
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: kube-system
-      podSelector:
-        matchLabels:
-          k8s-app: kube-dns
-    ports:
     - port: 53
-      protocol: UDP
+      protocol: TCP

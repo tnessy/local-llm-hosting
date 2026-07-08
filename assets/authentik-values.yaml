@@ -1,0 +1,73 @@
+# Helm values for authentik/authentik (chart 2026.5.x) — step 14.
+# Deploy into llm-platform. Secrets come from the pre-created `authentik-secrets`
+# Secret (never inline — inline values land readable in the release ConfigMap).
+# Redis is intentionally absent: authentik removed it in 2025.10 (Postgres-only).
+# No built-in ingress/route — we route auth.<domain> via Traefik Gateway API to
+# the authentik-server Service (port 80 → container 9000).
+#
+# Install:
+#   microk8s helm3 repo add authentik https://charts.goauthentik.io
+#   microk8s helm3 repo update
+#   microk8s helm3 upgrade --install authentik authentik/authentik \
+#     --namespace llm-platform -f assets/authentik-values.yaml --wait --timeout 15m
+# Release name MUST be `authentik` so the Postgres host resolves to
+# authentik-postgresql (see AUTHENTIK_POSTGRESQL__HOST below).
+
+global:
+  env:
+    - name: AUTHENTIK_POSTGRESQL__HOST
+      value: "authentik-postgresql"   # <release>-postgresql
+    - name: AUTHENTIK_POSTGRESQL__NAME
+      value: "authentik"
+    - name: AUTHENTIK_POSTGRESQL__USER
+      value: "authentik"
+    - name: AUTHENTIK_POSTGRESQL__PORT
+      value: "5432"                   # must be a string
+
+authentik:
+  enabled: true
+  log_level: info
+  existingSecret:
+    secretName: "authentik-secrets"   # AUTHENTIK_SECRET_KEY + AUTHENTIK_POSTGRESQL__PASSWORD
+  error_reporting:
+    enabled: false
+
+server:
+  replicas: 1
+  ingress:
+    enabled: false
+  route:
+    main:
+      enabled: false
+  metrics:
+    enabled: false
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits:   { memory: 1Gi }
+
+worker:
+  replicas: 1
+  metrics:
+    enabled: false
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits:   { memory: 1Gi }
+
+postgresql:
+  enabled: true
+  auth:
+    username: authentik
+    database: authentik
+    existingSecret: "authentik-secrets"
+    secretKeys:
+      adminPasswordKey: postgres-password   # Bitnami superuser
+      userPasswordKey: password             # authentik's DB user (== AUTHENTIK_POSTGRESQL__PASSWORD)
+  primary:
+    persistence:
+      enabled: true                         # PVC so IdP data survives restarts
+      size: 8Gi
+      accessModes: [ReadWriteOnce]
+    resourcesPreset: "none"                 # override Bitnami preset; use explicit resources
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits:   { memory: 512Mi }
