@@ -6,9 +6,11 @@
 # The authentik-server and orchestrator policies are added by their own steps
 # (15 and 16) once those workloads exist.
 #
-# Before applying, confirm the k8s API server ClusterIP matches the traefik-policy
-# egress ipBlock (MicroK8s default is 10.152.183.1; kubeadm default is 10.96.0.1):
-#   microk8s kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}'
+# Before applying, set the traefik-policy k8s-API egress ipBlock to the API server's
+# real ENDPOINT (node IP + :16443), NOT the `kubernetes` Service VIP — Calico matches
+# egress on the post-DNAT address, so a VIP rule silently never matches and Traefik's
+# gateway provider hangs (every Gateway stuck PROGRAMMED=Unknown, all routes 502):
+#   microk8s kubectl get endpoints kubernetes -n default   # -> <node-ip>:16443
 
 # cloudflared: no ingress (outbound tunnel); egress to Cloudflare edge + traefik + dns.
 apiVersion: networking.k8s.io/v1
@@ -36,14 +38,20 @@ spec:
           - 100.0.0.0/10
     ports:
     - port: 443
-      protocol: TCP
-  # Traefik — forward decapsulated requests in-cluster
+      protocol: TCP        # Cloudflare API — tunnel registration + config fetch
+    - port: 7844
+      protocol: UDP        # tunnel data plane — QUIC (primary transport)
+    - port: 7844
+      protocol: TCP        # tunnel data plane — HTTP/2 (fallback transport)
+  # Traefik — forward decapsulated requests in-cluster. Port is 8000 (Traefik's
+  # `web` entryPoint), NOT 80: cloudflared targets Service traefik:80, but kube-proxy
+  # DNATs to the pod's 8000, and NetworkPolicy matches the post-DNAT pod port.
   - to:
     - podSelector:
         matchLabels:
           app.kubernetes.io/name: traefik
     ports:
-    - port: 80
+    - port: 8000
       protocol: TCP
   - to:
     - namespaceSelector:
@@ -75,7 +83,7 @@ spec:
         matchLabels:
           app: cloudflared
     ports:
-    - port: 80
+    - port: 8000            # Traefik's `web` entryPoint (pod port), not the Service's 80
       protocol: TCP
   egress:
   # llm-core backends (open-webui :8080, litellm :4000)
@@ -112,12 +120,19 @@ spec:
     ports:
     - port: 9000
       protocol: TCP
-  # k8s API server — Traefik watches Gateways, HTTPRoutes, and Services
+  # k8s API server — Traefik watches Gateways, HTTPRoutes, and Services. Without
+  # this, the gateway provider's informer cache never syncs and NO Gateway ever
+  # programs (routes 502, Gateway stuck PROGRAMMED=Unknown) — with no error logged.
+  # CRITICAL: target the API server's REAL endpoint, not the `kubernetes` Service
+  # VIP (10.152.183.1:443). kube-proxy DNATs the VIP to the endpoint, and Calico
+  # matches egress on the post-DNAT address — so a VIP rule silently never matches.
+  # On MicroK8s the endpoint is the node IP on :16443. Get yours with:
+  #   microk8s kubectl get endpoints kubernetes -n default
   - to:
     - ipBlock:
-        cidr: 10.152.183.1/32
+        cidr: <node-ip>/32          # e.g. 192.168.68.55/32 — the kubernetes endpoint IP
     ports:
-    - port: 443
+    - port: 16443                    # MicroK8s API server port (kubeadm uses 6443)
       protocol: TCP
   - to:
     - namespaceSelector:

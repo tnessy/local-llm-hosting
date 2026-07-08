@@ -1,7 +1,12 @@
-# Gateway for the core public hostnames. cloudflared forwards all tunnel traffic
-# to Traefik on :80; Traefik routes by Host header via the HTTPRoutes attached to
-# these listeners. The workspace-gateway (*.ws.domain.com) is created separately
-# in step 16.
+# Gateway for the core public hostnames. cloudflared forwards tunnel traffic to
+# the Traefik Service on :80, which targets Traefik's non-privileged `web`
+# entryPoint on :8000. Traefik's Gateway-API provider matches listeners to
+# entryPoints BY PORT, so these listeners use 8000 (the Traefik chart's default
+# web entryPoint), NOT 80 — a listener on 80 fails with "no matching entryPoint
+# for port 80" (PortUnavailable). The public port stays 80 via the Service; only
+# the internal listener port is 8000. Traefik routes by Host header via the
+# HTTPRoutes attached to these listeners. The workspace-gateway (*.ws.domain.com)
+# is created separately in step 16.
 #
 # The ui/api listeners accept routes from llm-core (where core-httproutes.yaml
 # lives) and llm-platform. The admin/auth listeners accept routes only from
@@ -18,7 +23,7 @@ spec:
   listeners:
   - name: ui
     hostname: "llm.domain.com"
-    port: 80
+    port: 8000          # Traefik `web` entryPoint (public :80 via the Service)
     protocol: HTTP
     allowedRoutes:
       namespaces:
@@ -30,7 +35,7 @@ spec:
             values: [llm-platform, llm-core]
   - name: api
     hostname: "api.domain.com"
-    port: 80
+    port: 8000          # Traefik `web` entryPoint (public :80 via the Service)
     protocol: HTTP
     allowedRoutes:
       namespaces:
@@ -42,7 +47,7 @@ spec:
             values: [llm-platform, llm-core]
   - name: admin
     hostname: "admin.domain.com"
-    port: 80
+    port: 8000          # Traefik `web` entryPoint (public :80 via the Service)
     protocol: HTTP
     allowedRoutes:
       namespaces:
@@ -54,7 +59,7 @@ spec:
             values: [llm-platform]
   - name: auth
     hostname: "auth.domain.com"
-    port: 80
+    port: 8000          # Traefik `web` entryPoint (public :80 via the Service)
     protocol: HTTP
     allowedRoutes:
       namespaces:

@@ -79,25 +79,40 @@ at CF Access and protected by LiteLLM auth + WAF rules downstream.
 > the LiteLLM virtual key is required for every inference request. Admin
 > operations are Tailscale-only and never routed through the tunnel.
 
-**Required WAF rules** (Security → WAF → Custom rules on the `api.domain.com`
-zone). Use an **allowlist** approach — only the specific inference paths are
-permitted; everything else is blocked by default (including any future LiteLLM
-admin endpoint not listed here):
+**Required WAF rule** — an **allowlist** in Security → WAF → **Custom rules** on
+the `api.domain.com` **zone** (free plan allows 5 custom rules here; this is *not*
+the Enterprise account-level WAF). Only the inference paths are permitted;
+everything else is blocked by default, including any future LiteLLM admin endpoint.
 
-| Rule | Expression | Action |
-|---|---|---|
-| Allow inference paths only | `http.host eq "api.domain.com" and not http.request.uri.path matches "(?i)^/v1/(chat/completions\|completions\|models\|responses\|messages\|embeddings)(/\|$\|\?)"` | Block |
-| Rate limit | `http.host eq "api.domain.com"` | Rate limit — 60 req/min/IP, block 60 s |
+> **Free/Pro plans cannot use the `matches` regex operator** (Business/Advanced WAF
+> only). The allowlist below therefore uses the `starts_with()` + `lower()`
+> functions, which are available on **all plans**. In the rule builder, switch to
+> **Edit expression** and paste it (Action: **Block**):
 
-> **Allowlist approach:** only `/v1/chat/completions`, `/v1/completions`,
-> `/v1/models`, `/v1/responses`, `/v1/messages`, and `/v1/embeddings` are
-> publicly reachable. Every other path — including `/key/*`, **`/v1/key/*`**,
-> `/budget/*`, `/team/*`, `/config/*`, `/spend/*`, `/health`, and any future
-> LiteLLM admin route — is blocked by the first rule without requiring a
-> dedicated block entry. The `(?i)` flag makes matching case-insensitive,
-> preventing capitalisation bypasses (e.g. `/KEY/generate`, `/V1/Chat/Completions`).
-> Admin operations go via a Tailscale-gated `kubectl port-forward` only — never
-> the tunnel (see [step 06](06-gateway-litellm.md)).
+```
+http.host eq "api.domain.com" and not (starts_with(lower(http.request.uri.path), "/v1/chat/completions") or starts_with(lower(http.request.uri.path), "/v1/completions") or starts_with(lower(http.request.uri.path), "/v1/models") or starts_with(lower(http.request.uri.path), "/v1/responses") or starts_with(lower(http.request.uri.path), "/v1/messages") or starts_with(lower(http.request.uri.path), "/v1/embeddings"))
+```
+
+> **What this blocks:** only `/v1/chat/completions`, `/v1/completions`,
+> `/v1/models`, `/v1/responses`, `/v1/messages`, and `/v1/embeddings` reach LiteLLM.
+> Every other path — `/key/*`, **`/v1/key/*`**, `/budget/*`, `/team/*`,
+> `/config/*`, `/spend/*`, `/health`, and any future admin route — is blocked.
+> `lower()` normalises case so `/KEY/generate` or `/V1/Chat/Completions` can't
+> bypass it. Admin operations go via a Tailscale-gated `kubectl port-forward` only
+> — never the tunnel (see [step 06](06-gateway-litellm.md)).
+>
+> **On Business/Advanced WAF** you may prefer the tighter regex form (adds
+> path-boundary anchoring): `http.host eq "api.domain.com" and not http.request.uri.path matches "(?i)^/v1/(chat/completions|completions|models|responses|messages|embeddings)(/|$|\?)"`
+
+**Rate limiting (optional).** Add a **Rate limiting rule** on
+`http.host eq "api.domain.com"`, counting **by IP**, action **Block**. On the
+**Free plan the window and block duration are fixed at 10 s** (you can only set the
+request threshold) — so express the ceiling per 10 s, e.g. **20 requests / 10 s**
+(≈120/min; raise to 40–50 if legitimate coding-agent bursts trip it). Pro+ unlocks
+a 1-minute window. This is a **coarse edge flood-backstop only** — the precise
+per-user control is LiteLLM's **`rpm_limit`** (step 06), which limits each key
+regardless of IP. If you'd rather not tune it, **skipping this rule is fine**;
+LiteLLM already meters per key.
 
 ## 5. Access on the auth endpoint (`auth.domain.com`) — bypass + WAF path allowlist
 
@@ -118,6 +133,12 @@ zone):
 |---|---|---|
 | Allow OIDC + login paths only | `http.host eq "auth.domain.com" and not http.request.uri.path matches "(?i)^(/.well-known/\|/application/o/\|/if/flow/\|/static/\|/favicon)"` | Block |
 | Rate limit login attempts | `http.host eq "auth.domain.com" and http.request.uri.path matches "(?i)^/if/flow/"` | Rate limit — 10 req/min/IP, block 5 min |
+
+> **Free/Pro plan (no `matches` regex):** use the `starts_with()` + `lower()` form
+> for the allowlist block instead (Action **Block**, via **Edit expression**):
+> `http.host eq "auth.domain.com" and not (starts_with(lower(http.request.uri.path), "/.well-known/") or starts_with(lower(http.request.uri.path), "/application/o/") or starts_with(lower(http.request.uri.path), "/if/flow/") or starts_with(lower(http.request.uri.path), "/static/") or starts_with(lower(http.request.uri.path), "/favicon"))`
+> The login-flow rate-limit rule is optional on Free (see §4); Authentik's own
+> brute-force lockout (step 14) is the primary control.
 
 > **What this blocks:** `/if/admin/` (Authentik admin UI — Tailscale-only),
 > `/api/v3/` (Authentik REST API), and any Authentik path not part of the OIDC

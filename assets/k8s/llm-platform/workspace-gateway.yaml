@@ -2,6 +2,9 @@
 # step 04. Accepts routes only from llm-platform, where the orchestrator creates
 # one HTTPRoute per workspace at launch — never from ws-* namespaces directly.
 #
+# Listener port is 8000 to match Traefik's non-privileged `web` entryPoint (see
+# core-gateway.yaml) — the public port is still 80 via the Traefik Service.
+#
 # Replace domain.com with your domain.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
@@ -13,7 +16,7 @@ spec:
   listeners:
   - name: workspaces
     hostname: "*.ws.domain.com"
-    port: 80
+    port: 8000          # Traefik `web` entryPoint (public :80 via the Service)
     protocol: HTTP
     allowedRoutes:
       namespaces:

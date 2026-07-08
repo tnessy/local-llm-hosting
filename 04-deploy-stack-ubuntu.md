@@ -291,7 +291,7 @@ Traefik in-cluster, so ClusterIP — no NodePort):
 ```bash
 microk8s helm3 repo add traefik https://helm.traefik.io/traefik
 microk8s helm3 repo update
-microk8s helm3 install traefik traefik/traefik --namespace llm-platform --set providers.kubernetesGateway.enabled=true --set providers.kubernetesCRD.enabled=true --set service.type=ClusterIP
+microk8s helm3 install traefik traefik/traefik --namespace llm-platform --set providers.kubernetesGateway.enabled=true --set providers.kubernetesCRD.enabled=true --set service.type=ClusterIP --set gateway.enabled=false
 ```
 
 Verify the CRDs are registered, the Traefik pod is running, and a `traefik`
@@ -303,13 +303,33 @@ microk8s kubectl get pods -n llm-platform -l app.kubernetes.io/name=traefik
 microk8s kubectl get gatewayclass
 ```
 
-Before applying the NetworkPolicies in §8, confirm the k8s API server ClusterIP
-matches the `traefik-policy` egress rule (MicroK8s default is `10.152.183.1`):
+> **Traefik's `web` entryPoint is `:8000`, not `:80`.** The chart runs Traefik
+> unprivileged, so its HTTP entryPoint is `8000` (the Service still exposes public
+> `80 → 8000`). Traefik's Gateway-API provider binds listeners to entryPoints **by
+> port**, so `core-gateway`/`workspace-gateway` listeners use **port 8000** — a
+> listener on `80` never programs (`PortUnavailable: no matching entryPoint for
+> port 80`) and its routes 502. Confirm after applying §8:
+> `microk8s kubectl get gateway -n llm-platform` → `core-gateway` PROGRAMMED=True.
+>
+> `--set gateway.enabled=false` above suppresses the chart's default catch-all
+> Gateway (`traefik-gateway`), which otherwise contends for the same `web`
+> entryPoint and can block `core-gateway` from programming.
+
+Before applying the NetworkPolicies in §8, set the `traefik-policy` k8s-API egress
+rule to the API server's real **endpoint** — the node IP on `:16443`, **not** the
+`kubernetes` Service VIP. kube-proxy DNATs the VIP to this endpoint and Calico
+matches egress on the post-DNAT address, so a VIP-based rule silently never matches
+and Traefik's Gateway provider hangs (every Gateway stuck `PROGRAMMED=Unknown`, all
+routes 502, with no error logged — a brutal debugging trap):
 
 ```bash
-microk8s kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}{"\n"}'
-# If different, update the ipBlock in assets/k8s/llm-platform/networkpolicies.yaml
+microk8s kubectl get endpoints kubernetes -n default    # -> <node-ip>:16443
+# Put that <node-ip>/32 and port 16443 into the k8s-API egress rule in
+# assets/k8s/llm-platform/networkpolicies.yaml (traefik-policy) before applying §8.
 ```
+
+> This same endpoint-vs-VIP rule applies to **any** pod that must reach the API
+> server (e.g. the orchestrator in step 15). Always allow the node endpoint `:16443`.
 
 ## 8. Deploy the core stack
 
