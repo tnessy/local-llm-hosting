@@ -44,7 +44,13 @@ models:
     apiKey: sk-<their-virtual-key>
 ```
 
-Gives chat + inline autocomplete in the IDE.
+Gives chat + inline edits in the IDE. (Autocomplete needs a FIM model; a
+chat-tuned `coder` won't do good FIM — leave it off or use Tabby, step 10.)
+
+> **JetBrains alternative — ProxyAI** (marketplace, was "CodeGPT"): Continue is
+> shifting focus to its CLI, so on JetBrains **ProxyAI** is often the smoother
+> install. Settings → Tools → ProxyAI → Providers → **Custom OpenAI**: URL
+> `https://api.domain.com/v1/chat/completions`, API key = virtual key, model `coder`.
 
 ### Aider (CLI/TUI) — best for local models
 
@@ -83,10 +89,24 @@ wire_api = "responses"
 export ANTHROPIC_BASE_URL=https://api.domain.com
 export ANTHROPIC_AUTH_TOKEN=sk-<their-virtual-key>
 export ANTHROPIC_DEFAULT_SONNET_MODEL=coder
+export ANTHROPIC_DEFAULT_OPUS_MODEL=coder
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=coder    # map ALL tiers to one model — see note
 claude
 ```
 
-LiteLLM translates the Anthropic-format requests to the engine.
+> ⚠️ **Claude Code only works cleanly against a _native Anthropic_ backend** — i.e.
+> a hosted/frontier model routed through LiteLLM (D13, BYO key). It does **not**
+> work against a **local OpenAI-compatible** engine (TabbyAPI/llama-swap): Claude
+> Code hits `/v1/messages`, and LiteLLM's `/v1/messages`→OpenAI *translation* is
+> experimental and currently drops Claude Code's `input_text` content blocks
+> ([BerriAI/litellm#23841](https://github.com/BerriAI/litellm/issues/23841)) — you'll
+> get a 404 / "model may not exist". For **local** models use **Aider** or a
+> JetBrains/VS Code plugin (below), which speak OpenAI `/v1/chat/completions`.
+>
+> Also: in Claude Code's `/model` picker, avoid the **Default** entry — it appends a
+> `[1m]` 1M-context suffix (`coder[1m]`) the backend won't recognize. Pick the
+> explicit tier entry (`coder`), and map all three tiers to the **same** model name
+> so llama-swap doesn't cold-swap between identical models.
 
 ## Notes
 
