@@ -139,6 +139,18 @@ duplicated) by the steps above.
 
 ---
 
+## Maintenance
+
+Once the stack is live, **operational runbooks** — hardware swaps, upgrades,
+recovery, routine upkeep — live in [`maintenance/`](maintenance/). Unlike the
+numbered setup above, these are standalone and run on-demand.
+
+| Runbook | Use when |
+|---|---|
+| [GPU — replace / upgrade / add](maintenance/gpu-replace.md) | Swapping, upgrading, or adding a GPU |
+
+---
+
 ## Status checklist
 
 - [ ] 01 Prerequisites (domain, Cloudflare, Tailscale, hardware)
@@ -157,4 +169,3 @@ duplicated) by the steps above.
 - [ ] 14 Authentik IdP + Cloudflare Access federation + groups
 - [ ] 15 Workspaces: orchestrator, base images, isolation, scoped LiteLLM keys
 - [ ] 16 Admin UI (OIDC-gated control plane)
-- [ ] 17 Admin UI (OIDC-gated control plane)

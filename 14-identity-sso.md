@@ -72,8 +72,12 @@ alternatives) as the IdP.
    ([step 15](15-workspaces.md)).
 7. **Admin UI** uses Authentik OIDC with a `grp-admin` group check as its
    application-layer auth gate ([step 16](16-admin-ui.md)).
-8. *(Optional)* Wire **Open WebUI** to Authentik OIDC so UI friends SSO instead
-   of maintaining separate local accounts.
+8. **Wire Open WebUI SSO via the Cloudflare Access trusted header** — not a second
+   OIDC round-trip. CF Access already authenticated the user (Authentik + MFA) and
+   injects `Cf-Access-Authenticated-User-Email` on every request; set
+   `WEBUI_AUTH_TRUSTED_EMAIL_HEADER=Cf-Access-Authenticated-User-Email` on the
+   Open WebUI deployment and it auto-signs-in the matching user — no Open WebUI
+   login prompt. See §Open WebUI SSO below.
 
 ## Authentik hardening
 
@@ -204,6 +208,35 @@ Align Authentik token lifetimes with the CF Access session durations:
 
 Set these in **Applications → Providers → (each provider) → Access token
 validity** and **Refresh token validity**.
+
+## Open WebUI SSO (trusted header)
+
+Behind Cloudflare Access, **don't** federate Open WebUI to Authentik directly —
+that double-prompts the user (CF Access already ran the full Authentik + MFA
+login). Instead have Open WebUI trust the identity CF Access asserts:
+
+- CF Access injects **`Cf-Access-Authenticated-User-Email`** on every
+  authenticated request to `chat.domain.com`.
+- Set **`WEBUI_AUTH_TRUSTED_EMAIL_HEADER=Cf-Access-Authenticated-User-Email`** on
+  the Open WebUI deployment (see `assets/k8s/llm-core/open-webui.yaml`). Open WebUI
+  reads the header and auto-signs-in the matching user — no second login form.
+
+> **Security:** trusted-header auth is only safe because the **sole ingress path**
+> is `cloudflared → traefik → open-webui` (enforced by the NetworkPolicies in
+> [step 04 §8](04-deploy-stack-ubuntu.md)) and CF Access **strips any
+> client-supplied `Cf-Access-*` header at the edge**. If Open WebUI were reachable
+> by any path that bypasses Cloudflare, an attacker could set the header and
+> impersonate anyone — so never expose it outside the tunnel.
+
+> **Account matching is by email.** Open WebUI maps the header to a user by email.
+> If your existing admin account's email differs from the CF Access identity, the
+> header creates a **new, non-admin** account instead of logging into the admin
+> one. Align the admin account's email with the CF identity (or promote the new
+> account) before relying on this. Inspect accounts with:
+> ```bash
+> microk8s kubectl -n llm-core exec deploy/open-webui -- \
+>   python3 -c "import sqlite3; c=sqlite3.connect('/app/backend/data/webui.db'); print(list(c.execute('select email, role from user')))"
+> ```
 
 ## Authorization model (groups → capabilities)
 
