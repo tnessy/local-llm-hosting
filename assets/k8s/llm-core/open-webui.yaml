@@ -54,6 +54,15 @@ spec:
               key: secret-key
         - name: WEBUI_AUTH
           value: "true"
+        - name: WEBUI_AUTH_TRUSTED_EMAIL_HEADER
+          value: Cf-Access-Authenticated-User-Email
+                                      # SSO behind Cloudflare Access (step 14 §8): CF injects
+                                      # this header after Authentik+MFA; Open WebUI auto-signs-in
+                                      # the matching user instead of showing its own login form.
+                                      # Safe ONLY because the sole ingress path is
+                                      # cloudflared → traefik → open-webui (NetworkPolicies), and
+                                      # CF Access strips any client-supplied Cf-Access-* header at
+                                      # the edge — so the header cannot be spoofed from outside.
         - name: ENABLE_SIGNUP
           value: "false"              # accounts are created manually (step 07)
         - name: ENABLE_PERSISTENT_CONFIG

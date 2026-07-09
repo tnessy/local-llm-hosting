@@ -291,7 +291,7 @@ Traefik in-cluster, so ClusterIP — no NodePort):
 ```bash
 microk8s helm3 repo add traefik https://helm.traefik.io/traefik
 microk8s helm3 repo update
-microk8s helm3 install traefik traefik/traefik --namespace llm-platform --set providers.kubernetesGateway.enabled=true --set providers.kubernetesCRD.enabled=true --set service.type=ClusterIP --set gateway.enabled=false
+microk8s helm3 install traefik traefik/traefik --namespace llm-platform --set providers.kubernetesGateway.enabled=true --set providers.kubernetesCRD.enabled=true --set service.type=ClusterIP --set gateway.enabled=false --set ports.web.forwardedHeaders.insecure=true
 ```
 
 Verify the CRDs are registered, the Traefik pod is running, and a `traefik`
@@ -314,6 +314,13 @@ microk8s kubectl get gatewayclass
 > `--set gateway.enabled=false` above suppresses the chart's default catch-all
 > Gateway (`traefik-gateway`), which otherwise contends for the same `web`
 > entryPoint and can block `core-gateway` from programming.
+>
+> `--set ports.web.forwardedHeaders.insecure=true` makes Traefik **trust the
+> `X-Forwarded-Proto`/`X-Forwarded-For`** that cloudflared sends. Without it, apps
+> behind Traefik see plain HTTP and the wrong (pod) client IP — which breaks OIDC
+> issuers (Authentik advertises `http://` and federation fails, step 14) and hides
+> real client IPs from rate-limits/audit logs. Safe here because the `web`
+> entryPoint is only reachable from cloudflared (traefik-policy ingress).
 
 Before applying the NetworkPolicies in §8, set the `traefik-policy` k8s-API egress
 rule to the API server's real **endpoint** — the node IP on `:16443`, **not** the

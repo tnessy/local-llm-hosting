@@ -131,19 +131,30 @@ zone):
 
 | Rule | Expression | Action |
 |---|---|---|
-| Allow OIDC + login paths only | `http.host eq "auth.domain.com" and not http.request.uri.path matches "(?i)^(/.well-known/\|/application/o/\|/if/flow/\|/static/\|/favicon)"` | Block |
+| Allow OIDC + login paths only | `http.host eq "auth.domain.com" and not http.request.uri.path matches "(?i)^(/.well-known/\|/application/o/\|/if/flow/\|/static/\|/ws/\|/api/v3/flows/\|/api/v3/root/\|/favicon)"` | Block |
 | Rate limit login attempts | `http.host eq "auth.domain.com" and http.request.uri.path matches "(?i)^/if/flow/"` | Rate limit — 10 req/min/IP, block 5 min |
 
 > **Free/Pro plan (no `matches` regex):** use the `starts_with()` + `lower()` form
 > for the allowlist block instead (Action **Block**, via **Edit expression**):
-> `http.host eq "auth.domain.com" and not (starts_with(lower(http.request.uri.path), "/.well-known/") or starts_with(lower(http.request.uri.path), "/application/o/") or starts_with(lower(http.request.uri.path), "/if/flow/") or starts_with(lower(http.request.uri.path), "/static/") or starts_with(lower(http.request.uri.path), "/favicon"))`
+> `http.host eq "auth.domain.com" and not (starts_with(lower(http.request.uri.path), "/.well-known/") or starts_with(lower(http.request.uri.path), "/application/o/") or starts_with(lower(http.request.uri.path), "/if/flow/") or starts_with(lower(http.request.uri.path), "/static/") or starts_with(lower(http.request.uri.path), "/ws/") or starts_with(lower(http.request.uri.path), "/api/v3/flows/") or starts_with(lower(http.request.uri.path), "/api/v3/root/") or starts_with(lower(http.request.uri.path), "/favicon"))`
 > The login-flow rate-limit rule is optional on Free (see §4); Authentik's own
 > brute-force lockout (step 14) is the primary control.
 
-> **What this blocks:** `/if/admin/` (Authentik admin UI — Tailscale-only),
-> `/api/v3/` (Authentik REST API), and any Authentik path not part of the OIDC
-> or interactive login flow. The admin UI remains exclusively accessible via
-> Tailscale direct access to the Authentik pod.
+> **Why `/ws/` + `/api/v3/flows/` + `/api/v3/root/` are allowed:** Authentik's
+> login page (`/if/flow/…`) is a JS app, not server-rendered HTML. After the shell
+> loads it calls **`/api/v3/flows/executor/`** to render the actual
+> username/password/MFA stages, **`/api/v3/root/config/`** for branding, and opens
+> a **`wss://…/ws/client/`** live-update socket. If these are blocked, the shell
+> loads but no login form ever appears and Cloudflare's OIDC login fails with
+> "Response returned an error code" — while Authentik logs nothing past the shell
+> (the blocked calls die at the edge). These paths serve the **public** login flow
+> and are safe to expose; they are not the admin API.
+>
+> **What this still blocks:** `/if/admin/` (Authentik admin UI — Tailscale-only)
+> and the sensitive REST API (`/api/v3/core/`, `/api/v3/providers/`,
+> `/api/v3/policies/`, etc. — everything under `/api/v3/` *except* `flows/` and
+> `root/`). The admin UI remains exclusively accessible via Tailscale direct
+> access to the Authentik pod.
 >
 > **Accepted residual:** the OIDC and login-flow endpoints are publicly
 > reachable. Mitigations: WAF rate limit on login flows, Authentik brute-force
