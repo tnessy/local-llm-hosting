@@ -1,0 +1,23 @@
+# HTTPRoute for auth.<domain> → Authentik, attached to core-gateway's `auth`
+# listener. Lives in llm-platform (same namespace as authentik-server and the
+# gateway), so the backendRef needs no ReferenceGrant — the core-gateway `auth`
+# listener allows routes from llm-platform. Apply in step 14 Phase 4 once
+# Authentik is deployed and hardened. Replace domain.com with your domain.
+#
+# authentik-server Service exposes port 80 (→ container 9000); Traefik reaches it
+# on 9000 post-DNAT, already permitted by traefik-policy + authentik-server-policy.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: authentik-route
+  namespace: llm-platform
+spec:
+  parentRefs:
+  - name: core-gateway
+    namespace: llm-platform
+    sectionName: auth
+  hostnames: ["auth.domain.com"]
+  rules:
+  - backendRefs:
+    - name: authentik-server
+      port: 80

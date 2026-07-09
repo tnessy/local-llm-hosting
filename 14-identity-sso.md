@@ -130,6 +130,30 @@ user. Apply it as the binding on every OIDC application in Authentik:
 4. After setup: verify by logging in with a test account — Authentik must
    prompt for a TOTP code before issuing the OIDC token.
 
+**Per-group MFA strength (optional but recommended):** require **TOTP/WebAuthn for
+admins** while allowing **TOTP _or_ Email** for regular users. Create two
+Authenticator Validation stages — `mfa-validate-admin` (device classes: TOTP,
+WebAuthn) and `mfa-validate-friends` (TOTP, Email) — and bind **both** to
+`default-authentication-flow` (after password, before login), each with a **Group
+binding to `grp-admin`**: the admin stage un-negated, the friends stage **negated**.
+Set "Not configured action" = **Force the user to configure an authenticator** (with
+the matching setup stages listed), never "Deny".
+
+> **Critical:** on both stage bindings set **"Evaluate when flow is planned" = OFF**
+> and **"Evaluate when stage is run" = ON**. The flow plan is built while the user is
+> still anonymous, so a group check evaluated at plan time always fails — you must
+> defer it to execution (after identification) or the wrong stage (or no stage) is
+> selected.
+
+**Email as a factor** needs SMTP. Configure it **per-stage in the Authenticator
+Email stage's own connection fields** (host/port/user/pass/from — kept in Authentik's
+DB, not a k8s Secret) rather than the global `AUTHENTIK_EMAIL__*` env. Port 465 =
+**Use SSL**; 587 = **Use TLS** (not both), and the `From` must be an address the
+mailbox is authorized to send as. For the Email authenticator to appear in user
+enrollment, create a **Stage Configuration** flow containing the Email setup stage
+and set it as that stage's **Configuration flow**. Email is the weakest factor —
+keep it off admin accounts.
+
 ### Brute-force lockout
 
 Authentik's built-in reputation system rate-limits failed logins:
@@ -143,6 +167,17 @@ Authentik's built-in reputation system rate-limits failed logins:
 3. Complement with the Cloudflare WAF rate limit on `/if/flow/` — 10 req/min
    per IP, block 5 min ([step 09](09-connectivity-cloudflare.md) §5). This
    provides edge-level protection before requests even reach Authentik.
+
+> ⚠️ **Enable the reputation policy AFTER Authentik is behind Cloudflare (Phase 4),
+> not while you're setting up over a `kubectl port-forward`.** Over a port-forward
+> every request's source IP is `127.0.0.1`, so any failed logins during setup poison
+> that single IP's reputation — and a reputation policy bound to the *flow* then
+> denies the **entire flow for everyone** with the misleading message *"Flow does
+> not apply to current user"* (it's a flow-level policy denial, not an MFA problem).
+> Behind Cloudflare, real client IPs arrive via `X-Forwarded-For` and per-IP
+> reputation works correctly. If you self-lock during setup: **disable the flow's
+> reputation policy binding** to get back in, and clear poisoned scores via
+> `/api/v3/policies/reputation/scores/`.
 
 ### akadmin lockdown
 

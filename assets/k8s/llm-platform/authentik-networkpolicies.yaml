@@ -61,8 +61,10 @@ spec:
     ports:
     - port: 443
       protocol: TCP
+    - port: 465
+      protocol: TCP        # SMTPS (implicit SSL) — some providers only offer 465
     - port: 587
-      protocol: TCP
+      protocol: TCP        # SMTP submission (STARTTLS)
   - to:
     - namespaceSelector:
         matchLabels:
@@ -111,8 +113,10 @@ spec:
     ports:
     - port: 443
       protocol: TCP
+    - port: 465
+      protocol: TCP        # SMTPS (implicit SSL) — some providers only offer 465
     - port: 587
-      protocol: TCP
+      protocol: TCP        # SMTP submission (STARTTLS)
   - to:
     - namespaceSelector:
         matchLabels:
