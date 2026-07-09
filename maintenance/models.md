@@ -71,15 +71,17 @@ Record the target's params/quant and the idle/loaded VRAM you expect in
 ### 2. Download the weights
 
 On the **host** (not in-pod — the download uses the `hf` CLI over the host
-network, so no NetworkPolicy change is needed), pull the EXL2 folder into the
-model store, per [step 05 §2](../05-inference-tabbyapi-llamaswap.md#2-download-exl2-weights-to-the-model-store):
+network, so no NetworkPolicy change is needed), pull the EXL3 folder into the
+model store, per [step 05 §2](../05-inference-tabbyapi-llamaswap.md#2-download-exl3-weights-to-the-model-store):
 
 ```bash
-hf download <org>/<model-exl2> --local-dir /srv/models/<folder>
+hf download <org>/<model-exl3> --local-dir /srv/models/<folder>
 # add --revision <bpw> if the repo publishes each bit-rate as a branch
 ```
 
-Confirm disk headroom first (`df -h /srv/models`) — EXL2 folders are many GB.
+New models use **EXL3** (the default — [step 05](../05-inference-tabbyapi-llamaswap.md));
+EXL2 folders still load (TabbyAPI auto-detects), so a mixed store is fine. Confirm
+disk headroom first (`df -h /srv/models`) — model folders are many GB.
 Model weights are **not** in the step-13 backup (they're re-downloadable by
 design), so no backup change is needed.
 

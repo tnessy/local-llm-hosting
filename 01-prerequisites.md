@@ -46,9 +46,9 @@ No DNS records needed yet — the tunnel creates them in step 09.
 
 | Component | Guidance |
 |---|---|
-| **GPU (NVIDIA)** | The one component that gates everything. See the VRAM tiers in [step 05](05-inference-tabbyapi-llamaswap.md). ExLlamaV2 shines on RTX 3090/4090/5090-class cards. |
+| **GPU (NVIDIA)** | The one component that gates everything. See the VRAM tiers in [step 05](05-inference-tabbyapi-llamaswap.md). ExLlamaV3 shines on RTX 3090/4090/5090-class cards. |
 | **System RAM** | ≥ VRAM, ideally 1.5–2× (32–64 GB). |
-| **NVMe SSD** | 500 GB–1 TB+ for the EXL2 model store (models are large; they add up). Fast disk = faster model swaps. |
+| **NVMe SSD** | 500 GB–1 TB+ for the EXL3 model store (models are large; they add up). Fast disk = faster model swaps. |
 | **PSU** | Size for GPU TDP (≈350–450 W for 3090/4090) plus headroom. |
 | **Cooling / noise** | Sustained inference runs hot; ensure real airflow. |
 | **Network** | Gigabit LAN. Your **ISP upload** speed is the real remote bottleneck (light for text, heavier for images). |
@@ -56,7 +56,7 @@ No DNS records needed yet — the tunnel creates them in step 09.
 
 ### GPU options compared
 
-This stack runs **EXL2 on ExLlamaV2** — effectively NVIDIA/CUDA only. For
+This stack runs **EXL3 on ExLlamaV3** (EXL2 also supported) — effectively NVIDIA/CUDA only. For
 single-stream coding/chat the felt speed is **memory-bandwidth bound** (each
 token reads the whole active weights), so **VRAM capacity + bandwidth matter far
 more than CUDA/tensor-core count**. Tensor cores mainly help prefill (long-context
@@ -68,7 +68,7 @@ known provenance. They move weekly; re-check before buying.
 | Build | New $ | Total VRAM | Bandwidth | NVLink | Power | Notes |
 |---|---|---|---|---|---|---|
 | **1× RTX 4090** | ~$3,400 | 24 GB | ~1.0 TB/s | n/a | ~450 W | Cheapest good single card; mature CUDA; the safe default |
-| **1× RTX 5090** | ~$4,200 | 32 GB | **~1.8 TB/s** | n/a | ~575 W | Fastest + most VRAM on one card; **verify ExLlamaV2 builds on Blackwell first** |
+| **1× RTX 5090** | ~$4,200 | 32 GB | **~1.8 TB/s** | n/a | ~575 W | Fastest + most VRAM on one card; **verify ExLlamaV3 builds on Blackwell first** |
 | **2× RTX 4080 SUPER** | ~$2,600 | 32 GB | ~0.7 TB/s ea | **No** | ~640 W | Budget 32 GB, but layer-split over PCIe (no speedup), 2 slots |
 | **2× RTX 3090** | ~$4,200 | **48 GB** | ~0.94 TB/s ea | **Yes** | ~700 W | Only sound multi-GPU path (NVLink → tensor-parallel); unlocks 70B-class. New 3090s are old-stock priced — value only if you catch FEs (~$1,699) |
 | **2× RTX 3080** | ~$1,500 | 20 GB | ~0.76 TB/s ea | No | ~640 W | Cheapest, but 20 GB total is below the useful coding threshold; dominated by a single 4090 |
@@ -78,7 +78,7 @@ known provenance. They move weekly; re-check before buying.
 - **Default / lowest risk** → **1× RTX 4090.** 24 GB tier (step 05), proven, lowest
   power, no Blackwell-support risk.
 - **Want speed + headroom** → **1× RTX 5090** for ~$800 more — 32 GB and ~1.8× the
-  decode bandwidth lets you keep `coder` + `chat` resident. Confirm CUDA/ExLlamaV2
+  decode bandwidth lets you keep `coder` + `chat` resident. Confirm CUDA/ExLlamaV3
   wheels support Blackwell before committing.
 - **Need 70B-class or several models hot at once** → **2× RTX 3090** (48 GB +
   NVLink). At new pricing this costs as much as a 5090, so only pick it for the

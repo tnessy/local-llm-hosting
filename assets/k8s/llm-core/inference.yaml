@@ -1,4 +1,4 @@
-# Inference: llama-swap (model lifecycle) + TabbyAPI/ExLlamaV2 (engine).
+# Inference: llama-swap (model lifecycle) + TabbyAPI (engine; ExLlamaV3, EXL2-compatible).
 # The ONLY GPU workload. llama-swap reads its ConfigMap, starts the TabbyAPI
 # process for the requested model, and unloads it when another model is needed,
 # so models time-share the single GPU. Image is built locally and pushed to the

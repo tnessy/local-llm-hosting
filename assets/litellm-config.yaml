@@ -4,7 +4,7 @@
 #   - routes every model to the llama-swap endpoint (service "inference")
 #
 # Clients call LiteLLM; LiteLLM calls http://inference:8080/v1 (llama-swap),
-# which loads the right EXL2 model on the GPU on demand.
+# which loads the right EXL3 model on the GPU on demand.
 
 model_list:
   - model_name: coder              # what clients request

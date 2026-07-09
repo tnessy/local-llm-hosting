@@ -15,7 +15,7 @@ federates to it so one set of users/groups governs all client types.
 
 Friends connect through **Cloudflare** (no VPN, no open router ports). You
 administer through **Tailscale** (private overlay). A single GPU is time-shared
-across models by **llama-swap**, which loads/unloads **TabbyAPI + ExLlamaV2**
+across models by **llama-swap**, which loads/unloads **TabbyAPI + ExLlamaV3**
 models on demand. **LiteLLM** sits in front as the API gateway (per-user keys,
 budgets, and dialect translation).
 
@@ -35,7 +35,7 @@ budgets, and dialect translation).
    Aider (CLI/TUI)    ────────► api.domain.com             budgets, dialects)   [ns: llm-core]
    opencode/Codex/                └ CF Access BYPASS + WAF ──►     │
    Claude Code                      (virtual-key auth)             ▼
-                                                         llama-swap + TabbyAPI + ExLlamaV2
+                                                         llama-swap + TabbyAPI + ExLlamaV3
                                                          (one GPU, on-demand model swap)
                                                                               [ns: llm-core]
  Workspace user (browser) ──► ws-<id>.ws.domain.com
@@ -84,12 +84,12 @@ it's implemented, so changing a decision = editing that step.
 | D1 | Friend connectivity | **Cloudflare Tunnel + Access** | No VPN/installs, no open router ports. Alt: Tailscale (rejected — requires a client per friend). | [09](09-connectivity-cloudflare.md) |
 | D2 | Admin connectivity | **Tailscale** | Keeps host UI / SSH / engine off the public internet. | [08](08-connectivity-tailscale.md) |
 | D3 | GPU sharing | **llama-swap** (on-demand swap) | One GPU time-shared cleanly. Alt: run two engines concurrently (rejected — VRAM contention). | [05](05-inference-tabbyapi-llamaswap.md) |
-| D4 | Inference engine | **TabbyAPI + ExLlamaV2** | Fastest INT4 on a single consumer GPU. Alt: vLLM (concurrency, static model), Ollama (simplest). | [05](05-inference-tabbyapi-llamaswap.md) |
+| D4 | Inference engine | **TabbyAPI + ExLlamaV3** (EXL2-compatible) | Fastest INT4 on a single consumer GPU; EXL3 default for new models. Alt: vLLM (concurrency, static model), Ollama (simplest). | [05](05-inference-tabbyapi-llamaswap.md) |
 | D5 | API gateway | **LiteLLM** | Per-user keys/budgets + OpenAI/Responses/Anthropic dialect translation. | [06](06-gateway-litellm.md) |
 | D6 | Web UI | **Open WebUI** | General-chat-first + RBAC auth boundary. Alt: AnythingLLM (RAG-first — rejected for this use). | [07](07-webui-open-webui.md) |
 | D7 | Coding clients | **Continue (IDE) + Aider (CLI)** | Model-agnostic, forgiving of local models. Any OAI/Anthropic tool also works. | [11](11-clients.md) |
 | D8 | Host OS | **Ubuntu Server (latest LTS)** | Plain Linux — no NAS overhead; best NVIDIA/CUDA driver support; runs MicroK8s + Docker (as an image builder) cleanly. Alt: Debian (slightly more manual NVIDIA setup), Arch (rolling — too risky for 24/7). | [02](02-host-os-ubuntu.md) |
-| D9 | Model format/picks | **EXL2 quants, deferred** | Finalize at GPU purchase; sizing table in step 05. | [05](05-inference-tabbyapi-llamaswap.md) |
+| D9 | Model format/picks | **EXL3 quants, deferred** | EXL3 default (EXL2 still loads); finalize at GPU purchase; sizing table in step 05. | [05](05-inference-tabbyapi-llamaswap.md) |
 | D10 | Optional services | **ComfyUI (SD), Tabby (FIM)** | Add later; mind VRAM contention. | [10](10-optional-comfyui-tabby.md) |
 | D11 | Identity / SSO | **Authentik (OIDC IdP)** | One user/group source for all client types; CF Access federates to it. Alt: Keycloak/Zitadel. | [14](14-identity-sso.md) |
 | D12 | Workspaces (3rd client) | **MicroK8s + custom orchestrator + hardened pods, browser IDE** | On-demand dev envs; GPU-free; workspace pods reach LiteLLM in-cluster (no public hop); NetworkPolicy enforces isolation. Ingress via Traefik + Gateway API (ingress-nginx EOL March 2026). Alt (reference): Coder, Kasm. | [15](15-workspaces.md) |
@@ -121,7 +121,7 @@ Follow in order.
 | 02 | [Host OS + GPU (Ubuntu)](02-host-os-ubuntu.md) | Install Ubuntu Server, NVIDIA driver + container toolkit, Docker (image builder) |
 | 03 | [Storage (Ubuntu)](03-storage-ubuntu.md) | Format NVMe, mount at `/srv/models` |
 | 04 | [Bootstrap MicroK8s + deploy core stack](04-deploy-stack-ubuntu.md) | Install MicroK8s + add-ons, deploy inference/litellm/open-webui/cloudflared/Traefik |
-| 05 | [Inference engine + models](05-inference-tabbyapi-llamaswap.md) | Engine config, fetch EXL2, set context, validate tool-calling |
+| 05 | [Inference engine + models](05-inference-tabbyapi-llamaswap.md) | Engine config, fetch EXL3, set context, validate tool-calling |
 | 06 | [Gateway: LiteLLM](06-gateway-litellm.md) | Virtual keys, budgets, dialect routes |
 | 07 | [Web UI: Open WebUI](07-webui-open-webui.md) | Accounts, signup off, model wiring |
 | 08 | [Connectivity — admin (Tailscale)](08-connectivity-tailscale.md) | Admin overlay + ACL + VLAN |
@@ -157,7 +157,7 @@ numbered setup above, these are standalone and run on-demand.
 - [ ] 02 Host OS + GPU passthrough
 - [ ] 03 Fast model storage
 - [ ] 04 MicroK8s bootstrapped + core stack deployed
-- [ ] 05 Inference engine + models (TabbyAPI/llama-swap, EXL2 pulled, context set, tool-calling validated)
+- [ ] 05 Inference engine + models (TabbyAPI/llama-swap, EXL3 pulled, context set, tool-calling validated)
 - [ ] 06 LiteLLM gateway + per-friend keys
 - [ ] 07 Open WebUI accounts (signup disabled)
 - [ ] 08 Tailscale admin plane + VLAN

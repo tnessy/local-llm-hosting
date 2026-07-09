@@ -1,7 +1,8 @@
 # llama-swap config — maps a model NAME to the command that starts its backend.
 # When a request for "coder" arrives, llama-swap runs the matching TabbyAPI
-# process (loading the EXL2 weights into VRAM), routes the request, and later
-# unloads it so a different model can take the GPU. See step 05.
+# process (loading the EXL3 weights into VRAM), routes the request, and later
+# unloads it so a different model can take the GPU. See step 05. New models are
+# EXL3 (default); EXL2 also loads — TabbyAPI auto-detects the backend per folder.
 #
 # Placeholders <...> are finalized in step 05 once the GPU/models are chosen.
 # TabbyAPI has no --api-key flag; it binds loopback and is reached only by
@@ -18,7 +19,7 @@ models:
     cmd: >
       python3 /app/main.py
       --model-dir /models
-      --model-name <Qwen3-Coder-30B-exl2>
+      --model-name <Qwen3-Coder-30B-exl3>
       --max-seq-len 65536
       --disable-auth true
       --host 127.0.0.1 --port 5001
@@ -31,7 +32,7 @@ models:
     cmd: >
       python3 /app/main.py
       --model-dir /models
-      --model-name <general-chat-exl2>
+      --model-name <general-chat-exl3>
       --max-seq-len 32768
       --disable-auth true
       --host 127.0.0.1 --port 5002

@@ -2,7 +2,7 @@
 
 ← [04 Deploy stack](04-deploy-stack-ubuntu.md) · Next: [06 LiteLLM](06-gateway-litellm.md)
 
-> **Overview:** The inference engine (llama-swap + TabbyAPI/ExLlamaV2) is already deployed as a pod in [step 04](04-deploy-stack-ubuntu.md). Here you download EXL2 model weights to `/srv/models`, wire them into the `llama-swap-config` ConfigMap with the right context window, and validate tool-calling.
+> **Overview:** The inference engine (llama-swap + TabbyAPI, running **ExLlamaV3**) is already deployed as a pod in [step 04](04-deploy-stack-ubuntu.md). Here you download **EXL3** model weights to `/srv/models`, wire them into the `llama-swap-config` ConfigMap with the right context window, and validate tool-calling.
 >
 > **Why:** Until real weights are on disk and named in the config, the engine runs but serves no model. Model choice, quant, and `--max-seq-len` here directly determine what fits in VRAM and whether local coding actually works.
 >
@@ -11,23 +11,30 @@
 > | Placeholder | What it is | Where to find it |
 > |---|---|---|
 > | `<HF_TOKEN>` | HuggingFace access token (for gated models) | huggingface.co → Settings → Access Tokens |
-> | `<org>/<model-exl2>` | HuggingFace repo of the EXL2 model | huggingface.co/models — search EXL2 variants |
+> | `<org>/<model-exl3>` | HuggingFace repo of the EXL3 model | huggingface.co/models — search EXL3 variants |
 > | `<local-folder-name>` | Folder under `/srv/models` for the weights | Your choice — referenced in `llama-swap-config.yaml` |
 
 This is the engine layer (decisions **D3/D4**). **llama-swap** is the front door
-on `:8080`; it launches a **TabbyAPI/ExLlamaV2** process for whichever model a
+on `:8080`; it launches a **TabbyAPI (ExLlamaV3)** process for whichever model a
 request names, and unloads it when another model is needed — so a single GPU is
 time-shared instead of contended.
 
 Config files: [`assets/inference/Dockerfile`](assets/inference/Dockerfile) and
 [`assets/llama-swap-config.yaml`](assets/llama-swap-config.yaml).
 
+> **Format: EXL3 is the default.** New models use **EXL3 / ExLlamaV3** — newer
+> model architectures (Gemma 4+) land there first, and EXL3's quality-per-bit beats
+> EXL2 (a 14B fits 12 GB at ~4.0 bpw with ≈ EXL2-4.5 quality). **EXL2 still works** —
+> TabbyAPI auto-detects the backend from the model folder, so the two formats
+> coexist and existing EXL2 weights need no migration. Everything below applies to
+> both; pick EXL3 when a quant is available.
+
 ## How it fits together
 
 ```
 LiteLLM / Open WebUI ──► inference:8080  (llama-swap)
                               │  reads request's "model" field
-                              ├─► starts TabbyAPI "coder" on :5001  (loads EXL2 → VRAM)
+                              ├─► starts TabbyAPI "coder" on :5001  (loads EXL3 → VRAM)
                               └─► starts TabbyAPI "chat"  on :5002
                           one model resident at a time (single GPU)
 ```
@@ -39,27 +46,29 @@ Each entry in [`llama-swap-config.yaml`](assets/llama-swap-config.yaml) maps a
 - `chat` → a general chat model.
 
 The `<placeholders>` (model filenames) are filled in below, once you've downloaded
-EXL2 weights.
+EXL3 weights.
 
 ## 1. Pick models by VRAM
 
-| VRAM | Coding model (EXL2, representative) | General chat | Notes |
+| VRAM | Coding model (EXL3, representative) | General chat | Notes |
 |---|---|---|---|
 | **24 GB** | Qwen3-Coder ~30B class | a 14–32B chat model | 256K-ctx capable; best responsiveness; room for a small 2nd model |
 | **12–16 GB** | DeepSeek-Coder V3 distilled / ~14B | 7–14B chat | one model resident; moderate ctx |
 | **8–10 GB** | 7–8B coder | 7–8B chat | single model; modest ctx; `ttl` matters |
 
 Confirm exact current picks against a live leaderboard (e.g. Aider's) before
-downloading — the field moves fast. Prefer a higher EXL2 bit-rate (≈5–6 bpw) for
-coding if VRAM allows; code is more quant-sensitive than chat.
+downloading — the field moves fast. Prefer a higher EXL3 bit-rate (≈4–5 bpw — EXL3
+reaches EXL2 5–6 bpw quality at a lower bitrate) for coding if VRAM allows; code is
+more quant-sensitive than chat.
 
 ### Current models — what fits this stack (June 2026)
 
-This stack is **EXL2 / ExLlamaV2, GPU-resident** (no meaningful CPU offload). That
-splits the current field cleanly into "runs locally here" vs "cloud-route it." The
-frontier MoE models people search for (GLM-5.1, DeepSeek-V4, Kimi, MiniMax-M3,
-MiMo, Qwen3.5-flagship) are **230 B–1.6 T parameters** — they don't fit any
-consumer GPU at a usable quant, and most ship **GGUF (llama.cpp)**, not EXL2.
+This stack is **EXL3 / ExLlamaV3, GPU-resident** (no meaningful CPU offload; EXL2
+also runs, auto-detected). That splits the current field cleanly into "runs locally
+here" vs "cloud-route it." The frontier MoE models people search for (GLM-5.1,
+DeepSeek-V4, Kimi, MiniMax-M3, MiMo, Qwen3.5-flagship) are **230 B–1.6 T
+parameters** — they don't fit any consumer GPU at a usable quant, and most ship
+**GGUF (llama.cpp)**, not EXL3.
 
 | Model | Params (total/active) | Fits? | Min build | Notes |
 |---|---|---|---|---|
@@ -81,9 +90,9 @@ the money. Instead, **route them through LiteLLM to a hosted API**
 ([step 06](06-gateway-litellm.md)) — clients don't change. Use local for the
 fast/private 24 GB-tier coder, cloud for the frontier giants.
 
-## 2. Download EXL2 weights to the model store
+## 2. Download EXL3 weights to the model store
 
-EXL2 models live as folders under the NVMe model dir from step 03 (`/srv/models`).
+EXL3 models live as folders under the NVMe model dir from step 03 (`/srv/models`).
 
 **Install the HuggingFace CLI on the host** — the `huggingface_hub` package
 provides the `hf` command (the older `huggingface-cli` is deprecated). Install via
@@ -101,7 +110,7 @@ hf auth login     # paste your <HF_TOKEN> when prompted
 branch, so add `--revision <bpw>` when the repo is organized that way:
 
 ```bash
-hf download <org>/<model-exl2> --local-dir /srv/models/<local-folder-name>
+hf download <org>/<model-exl3> --local-dir /srv/models/<local-folder-name>
 ```
 
 The folder name is what you reference as `--model-name` in the config.
@@ -144,10 +153,10 @@ microk8s kubectl rollout restart deploy/inference -n llm-core
 ## 4. Cold-start and concurrency
 
 - **Cold start:** the first request to a not-yet-loaded model waits ~5–30 s while
-  EXL2 weights load into VRAM (depends on model size + NVMe speed). Subsequent
+  EXL3 weights load into VRAM (depends on model size + NVMe speed). Subsequent
   requests are full speed until the model is swapped or times out (`ttl`). Expected
   — communicate it to UI friends (the dropdown switch has a brief pause).
-- **Concurrency:** ExLlamaV2/TabbyAPI is fastest but oriented to **one request at a
+- **Concurrency:** ExLlamaV3/TabbyAPI is fastest but oriented to **one request at a
   time**. llama-swap and LiteLLM queue concurrent hits. For a handful of friends
   who rarely fire simultaneously this is ideal. If you later need true concurrency,
   point a llama-swap entry at **vLLM** instead — no client changes (LiteLLM
@@ -163,7 +172,7 @@ Local coding success hinges on reliable tool-calls. Validate in order:
 3. Only then try heavier agents (Cline / OpenHands), which lean hardest on
    tool-calling.
 
-If tool-calls are flaky: raise the EXL2 bit-rate, increase context, or switch to
+If tool-calls are flaky: raise the EXL3 bit-rate, increase context, or switch to
 a stronger coding model — all without touching client config (LiteLLM abstracts
 the backend).
 

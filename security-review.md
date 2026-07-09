@@ -317,7 +317,7 @@ Workspace hostname (`<slug>.ws.domain.com`) is a stable alias set once at first 
 **Location:** 15-workspaces.md §4c — inference-policy  
 **Flagged by:** NET-8  
 **Issue:** Only an ingress NetworkPolicy is defined for the inference pod; no egress policy exists, giving the inference process (TabbyAPI / llama-swap) unrestricted outbound access to the LAN, internet, and all other pods.  
-**Impact:** A compromised inference process — via malicious model weights, a TabbyAPI/ExLlamaV2 vulnerability, or a supply-chain attack — can exfiltrate user prompts, API keys visible in the environment, or establish a reverse shell to an external C2.  
+**Impact:** A compromised inference process — via malicious model weights, a TabbyAPI/ExLlamaV3 vulnerability, or a supply-chain attack — can exfiltrate user prompts, API keys visible in the environment, or establish a reverse shell to an external C2.  
 **Fix (implemented):** `inference-ingress` replaced with `inference-policy` (policyTypes: [Ingress, Egress]). Egress restricted to kube-dns:53 only — the inference process has no legitimate outbound connections beyond DNS resolution. Fixed as part of the H-2 default-deny + explicit-allow overhaul.
 
 ### M-4 — api.domain.com Has Cloudflare Access Bypass with Only IP-Based Rate Limiting
@@ -796,10 +796,10 @@ Workspace hostname (`<slug>.ws.domain.com`) is a stable alias set once at first 
 **Impact:** Unauthorized database modification (key budget elevation, rogue key insertion) is undetectable; unbounded log growth can fill the NVMe and crash pods, while long-lived logs persist any key material captured at verbose log level (M-47).  
 **Fix:** Add `logging: driver: json-file options: max-size: '10m' max-file: '5'` to each docker-compose service, and schedule a periodic `sha256sum litellm.db` checksum record against a baseline to detect unexpected database modifications.
 
-### M-64 — No Integrity Verification for Downloaded EXL2 Model Weights
+### M-64 — No Integrity Verification for Downloaded EXL3 Model Weights
 **Location:** 05-inference-tabbyapi-llamaswap.md; README.md step 05 reference  
 **Flagged by:** OPS-17  
-**Issue:** No guidance is provided on recording or verifying the SHA-256 hashes of downloaded EXL2 model weight files; Hugging Face repositories can be modified after an initial download, and no provenance log is maintained.  
+**Issue:** No guidance is provided on recording or verifying the SHA-256 hashes of downloaded EXL3 model weight files; Hugging Face repositories can be modified after an initial download, and no provenance log is maintained.  
 **Impact:** Adversarially modified model weights could cause systematically biased or information-leaking inference outputs for all users, and detection is difficult because a poisoned model appears functionally normal for most queries.  
 **Fix:** Record the Hugging Face repository commit SHA and the SHA-256 hash of each weight file at download time, verify against uploader-published checksums where available, and maintain a provenance log with source URL, commit SHA, download date, and file hashes.
 

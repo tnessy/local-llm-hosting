@@ -4,7 +4,7 @@
 
 > **Overview:** Partition and persistently mount a dedicated NVMe SSD as `/srv/models`, separate from the OS disk, so model weights survive reboots and never compete with OS storage.
 >
-> **Why:** EXL2 model weights range from 10–100+ GB each. Keeping them on a separate NVMe protects the OS disk from exhaustion and gives full sequential read throughput during model loads — critical when swapping between models on a single GPU.
+> **Why:** EXL3 model weights range from 10–100+ GB each. Keeping them on a separate NVMe protects the OS disk from exhaustion and gives full sequential read throughput during model loads — critical when swapping between models on a single GPU.
 
 > ⚠️ **This step formats an entire drive.** Your OS lives on the boot NVMe (e.g.
 > `nvme0n1`); running these commands against it will destroy your system. This

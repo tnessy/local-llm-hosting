@@ -1,4 +1,5 @@
-# Inference image: llama-swap (model lifecycle) + TabbyAPI/ExLlamaV2 (engine).
+# Inference image: llama-swap (model lifecycle) + TabbyAPI (engine; ExLlamaV3,
+# EXL2-compatible — TabbyAPI auto-detects the backend per model).
 # llama-swap is the entrypoint; it launches the TabbyAPI process for whichever
 # model a request asks for (see ../llama-swap-config.yaml) and unloads it when a
 # different model is needed, so models time-share the single GPU.

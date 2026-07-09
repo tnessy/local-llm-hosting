@@ -55,7 +55,7 @@ open the case**, or you'll boot to a card the driver can't init:
 - If the installed driver predates that floor, plan a driver update as part of the
   swap ([step 02 §5](../02-host-os-ubuntu.md#5-install-the-nvidia-driver):
   `sudo ubuntu-drivers install`, or pin a specific branch).
-- For **very new** architectures, confirm your **ExLlamaV2 / CUDA wheel** in the
+- For **very new** architectures, confirm your **ExLlamaV3 / CUDA wheel** in the
   inference image supports it — a card the driver sees but the engine's CUDA
   kernels don't is a silent failure. Bump the image if needed.
 
@@ -149,8 +149,8 @@ VRAM tiers and sizing guidance in [step 05](../05-inference-tabbyapi-llamaswap.m
 The device plugin now advertises `nvidia.com/gpu: N`. Decide the topology:
 
 - **One big model across both** (tensor-parallel): set the inference pod request to
-  `nvidia.com/gpu: 2` and configure ExLlamaV2 **`gpu_split` / tensor-parallel** in
-  the TabbyAPI config. NVLink is optional for ExLlamaV2 tensor-parallel but helps;
+  `nvidia.com/gpu: 2` and configure ExLlamaV3 **`gpu_split` / tensor-parallel** in
+  the TabbyAPI config. NVLink is optional for ExLlamaV3 tensor-parallel but helps;
   PCIe topology affects throughput. This is the path to **70B-class at good quant**
   (see [step 01 GPU options](../01-prerequisites.md#gpu-options-compared)).
 - **Pin services to separate GPUs** (e.g. LLM on GPU 0, ComfyUI on GPU 1): give

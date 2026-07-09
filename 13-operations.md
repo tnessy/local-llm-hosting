@@ -28,7 +28,7 @@ Two stateful volumes hold the crown jewels:
 > salt renders the entire key table unverifiable and requires re-issuing keys to
 > all friends. Back it up separately (see below).
 
-Models don't need backup (re-downloadable), but note which EXL2 folders you used.
+Models don't need backup (re-downloadable), but note which model folders (EXL3/EXL2) you used.
 
 ### First-time setup
 

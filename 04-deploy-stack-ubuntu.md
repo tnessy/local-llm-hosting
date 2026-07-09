@@ -214,7 +214,7 @@ microk8s kubectl create configmap llama-swap-config -n llm-core --from-file=llam
 
 ## 5. Build the inference image and push it to the registry
 
-The inference image (llama-swap + TabbyAPI/ExLlamaV2) is built locally and pushed
+The inference image (llama-swap + TabbyAPI, running ExLlamaV3/EXL2) is built locally and pushed
 to the MicroK8s registry at `localhost:32000`, which the cluster pulls from.
 
 First get the integrity values the Dockerfile requires — the llama-swap binary
