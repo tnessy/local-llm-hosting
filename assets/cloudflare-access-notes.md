@@ -18,7 +18,7 @@ Zero Trust → Networks → Tunnels → `home-llm` → **Published application r
 > Every hostname points at the same target — Traefik. cloudflared forwards each
 > tunnel request to `traefik.llm-platform:80`, and Traefik dispatches by `Host`
 > header to the right backend via the Gateway API (step 04). Add `admin.` and
-> `auth.` only after their HTTPRoutes exist (steps 16 and 15).
+> `auth.` only after their HTTPRoutes exist (steps 16 and 14).
 
 ## 2. Access application — UI (`llm.domain.com`)
 
@@ -42,8 +42,10 @@ downstream by LiteLLM.
 
 > **Accepted residual:** no edge-level identity check precedes the LiteLLM key
 > check. The WAF allowlist (step 09 §4) blocks all non-inference paths so
-> unauthenticated callers cannot reach admin endpoints. Admin operations require
-> Tailscale and are never routed through the tunnel.
+> unauthenticated callers cannot reach admin endpoints. LiteLLM's own `/key/*`
+> endpoints require Tailscale and are never routed through the `api.` tunnel
+> directly — friend/key/user administration goes through the separately-gated
+> Admin UI at `admin.domain.com` (§4 below) instead.
 
 ## 4. Access application — Admin UI (`admin.domain.com`)
 

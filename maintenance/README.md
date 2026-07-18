@@ -23,6 +23,7 @@ standalone, run on-demand, and assume the stack is already live.
 |---|---|
 | [gpu-replace.md](gpu-replace.md) | Replacing, upgrading, or adding a GPU |
 | [models.md](models.md) | Adding, renaming, or removing a served model |
+| [model-troubleshooting.md](model-troubleshooting.md) | A newly-wired model won't load / 500s / never becomes ready, or tool-calling breaks silently |
 
 <!-- Future runbooks (add as written):
      - driver-update.md      — NVIDIA driver / CUDA upgrade (held back from unattended-upgrades)

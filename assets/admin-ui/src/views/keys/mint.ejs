@@ -1,0 +1,11 @@
+<%- include("../partials/header", { title: "Mint a LiteLLM key" }) %>
+<form method="post" action="/keys/mint">
+  <%- include("../partials/csrf-field") %>
+  <label>Alias <input name="alias" required></label>
+  <label>Models (comma-separated) <input name="models" placeholder="coder,chat"></label>
+  <label>Max budget (USD) <input name="maxBudget" type="number" step="0.01"></label>
+  <label>Budget duration <input name="budgetDuration" placeholder="30d"></label>
+  <label>RPM limit <input name="rpmLimit" type="number"></label>
+  <button type="submit">Mint key</button>
+</form>
+<%- include("../partials/footer") %>

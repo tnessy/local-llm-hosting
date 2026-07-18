@@ -1,0 +1,7 @@
+<%- include("../partials/header", { title: "Key minted" }) %>
+<p class="warning">This key will not be shown again — copy it now.</p>
+<p><strong><%= alias %></strong></p>
+<pre id="key"><%= key %></pre>
+<button type="button" onclick="navigator.clipboard.writeText(document.getElementById('key').textContent)">Copy</button>
+<p><a href="/keys">Back to keys</a></p>
+<%- include("../partials/footer") %>

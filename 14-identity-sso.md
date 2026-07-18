@@ -164,10 +164,24 @@ Authentik's built-in reputation system rate-limits failed logins:
 
 1. **Flows & Stages → Stages → default-authentication-login** → edit the
    **User Login Stage** → set **Failed attempts before cancel: 5**.
-2. **Policies → Create → Reputation Policy** — threshold: 5. Bind it to the
-   default-authentication-flow with order 0 (evaluated before the password
-   stage). A source IP that accumulates 5 failed logins is blocked for the
-   lockout window (default 600 s; tune to taste).
+2. **Policies → Create → Reputation Policy** — leave **threshold at its default
+   `-5`** (a *negative* number; failed logins drive a score down, so the block
+   condition is a low score). Bind it to the default-authentication-flow with
+   order 0 (evaluated before the password stage) **and tick "Negate result" on
+   the binding**. A source IP that accumulates ~5 failed logins is then blocked
+   for the lockout window (default 600 s; tune to taste).
+
+   > **Why negate is mandatory (do not skip):** a Reputation Policy `passes`
+   > (returns *true*) only when the score is **≤ threshold** — i.e. it matches
+   > **bad** actors, not good ones. A flow-level binding makes the flow
+   > *applicable* only when its policies pass. So an **un-negated** binding makes
+   > the login flow apply **only to already-flagged IPs** and denies **everyone
+   > with a normal score of 0** (`0 <= -5` is false) — the flow becomes
+   > non-applicable and the OIDC authorize endpoint returns a bare **"Not Found"
+   > (HTTP 404)** page for all users. Negating inverts it: the flow applies to
+   > good users (score 0) and is denied only for bad-reputation IPs. Setting a
+   > *positive* threshold like `5` is also wrong — `0 <= 5` is true, so the gate
+   > passes for everyone (including bad actors) and does nothing.
 3. Complement with the Cloudflare WAF rate limit on `/if/flow/` — 10 req/min
    per IP, block 5 min ([step 09](09-connectivity-cloudflare.md) §5). This
    provides edge-level protection before requests even reach Authentik.
@@ -182,6 +196,20 @@ Authentik's built-in reputation system rate-limits failed logins:
 > reputation works correctly. If you self-lock during setup: **disable the flow's
 > reputation policy binding** to get back in, and clear poisoned scores via
 > `/api/v3/policies/reputation/scores/`.
+>
+> **Same 404 symptom, second cause — a mis-negated binding.** If `auth.<domain>`
+> shows Authentik's "Not Found" page for *every* user (even with an **empty**
+> reputation store), the reputation binding is almost certainly **un-negated**
+> (see step 2). Verify and fix from the Authentik shell:
+> ```bash
+> microk8s kubectl -n llm-platform exec deploy/authentik-server -- ak shell -c "
+> from authentik.flows.models import Flow
+> from authentik.policies.models import PolicyBinding
+> f=Flow.objects.get(slug='default-authentication-flow')
+> b=PolicyBinding.objects.filter(target=f, policy__isnull=False).first()
+> b.negate=True; b.save(); print('negate set to', b.negate)"
+> ```
+> Then confirm the authorize endpoint returns **302 → /if/flow/…** instead of 404.
 
 ### akadmin lockdown
 

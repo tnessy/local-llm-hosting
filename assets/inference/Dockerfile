@@ -20,10 +20,14 @@ ARG LLAMA_SWAP_VERSION=v235
 #   curl -fsSL https://github.com/mostlygeek/llama-swap/releases/download/${LLAMA_SWAP_VERSION}/llama-swap_${LLAMA_SWAP_VERSION#v}_checksums.txt | grep linux_amd64.tar.gz
 # Then set the default below or pass --build-arg LLAMA_SWAP_SHA256=<hash> at build time.
 ARG LLAMA_SWAP_SHA256
+# python3.12-dev (below) provides Python.h so Triton can JIT-compile its CUDA
+# kernels at runtime — required by newer ExLlamaV3 archs (Qwen3.5 Gated DeltaNet,
+# Gemma-4 paged attention); without it those models crash on load. gcc + libcuda
+# already ship in the tabbyapi base image. See deployments/surtr.md.
 RUN test -n "${LLAMA_SWAP_SHA256}" \
       || { echo 'ERROR: set LLAMA_SWAP_SHA256 (step 04 §5)'; exit 1; } \
     && apt-get update \
-    && apt-get install -y --no-install-recommends wget ca-certificates \
+    && apt-get install -y --no-install-recommends wget ca-certificates python3.12-dev \
     && ver="${LLAMA_SWAP_VERSION#v}" \
     && wget -qO /tmp/llama-swap.tgz \
       "https://github.com/mostlygeek/llama-swap/releases/download/${LLAMA_SWAP_VERSION}/llama-swap_${ver}_linux_amd64.tar.gz" \
@@ -32,6 +36,13 @@ RUN test -n "${LLAMA_SWAP_SHA256}" \
     && tar -xzf /tmp/llama-swap.tgz -C /tmp/lsx \
     && install -m 0755 "$(find /tmp/lsx -type f -name llama-swap | head -1)" /usr/local/bin/llama-swap \
     && rm -rf /tmp/llama-swap.tgz /tmp/lsx /var/lib/apt/lists/*
+
+# Generic launcher that redirects TabbyAPI's output to a file so llama-swap's
+# undrained stderr pipe can't stall/kill a verbose model's load (e.g. phi-4-reasoning
+# — see deployments/surtr.md "Rollout gotchas"). Point each llama-swap `cmd:` at
+# `bash /usr/local/bin/tabby-run.sh <main.py args>` instead of `python3` directly.
+COPY tabby-run.sh /usr/local/bin/tabby-run.sh
+RUN chmod +x /usr/local/bin/tabby-run.sh
 
 # llama-swap config is mounted at /app/config.yaml from the llama-swap-config
 # ConfigMap (step 04 §4).

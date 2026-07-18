@@ -1,0 +1,26 @@
+<%- include("../partials/header", { title: "LiteLLM keys" }) %>
+<p><a href="/keys/mint">Mint a raw key</a></p>
+<table>
+  <thead>
+    <tr><th>Alias</th><th>Spend</th><th>Budget</th><th>RPM</th><th>Models</th><th></th></tr>
+  </thead>
+  <tbody>
+  <% keys.forEach(function (k) { %>
+    <tr>
+      <td><%= k.key_alias || k.key_name || "—" %></td>
+      <td><%= k.spend %></td>
+      <td><%= k.max_budget === null ? "unlimited" : k.max_budget %></td>
+      <td><%= k.rpm_limit === null ? "unlimited" : k.rpm_limit %></td>
+      <td><%= (k.models || []).join(", ") %></td>
+      <td>
+        <form method="post" action="/keys/revoke" onsubmit="return confirm('Revoke this key?');">
+          <%- include("../partials/csrf-field") %>
+          <input type="hidden" name="key" value="<%= k.token || k.key_name %>">
+          <button type="submit">Revoke</button>
+        </form>
+      </td>
+    </tr>
+  <% }) %>
+  </tbody>
+</table>
+<%- include("../partials/footer") %>

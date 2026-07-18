@@ -1,0 +1,12 @@
+<%- include("partials/header", { title: "Dashboard" }) %>
+<% if (errors.length) { %>
+  <ul class="errors">
+    <% errors.forEach(function (e) { %><li><%= e %></li><% }) %>
+  </ul>
+<% } %>
+<ul class="stats">
+  <li>LiteLLM keys: <%= counts.keys === null ? "—" : counts.keys %></li>
+  <li>Authentik users: <%= counts.authentikUsers === null ? "—" : counts.authentikUsers %></li>
+  <li>Open WebUI users: <%= counts.webuiUsers === null ? "—" : counts.webuiUsers %></li>
+</ul>
+<%- include("partials/footer") %>

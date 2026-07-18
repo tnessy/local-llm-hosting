@@ -1,0 +1,69 @@
+# admin-ui NetworkPolicy (llm-platform). Layers on top of the llm-platform
+# default-deny baseline (step 04 §8). No orchestrator egress rule — step 15
+# doesn't exist yet; add it when the orchestrator ships.
+#
+# No edits needed elsewhere: litellm-policy and open-webui-policy
+# (assets/k8s/llm-core/networkpolicies.yaml) already allow ingress from any
+# llm-platform pod on their respective ports, and authentik-server-policy
+# (authentik-networkpolicies.yaml) already lists `app: admin-ui` in its
+# ingress selector.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: admin-ui-policy
+  namespace: llm-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: admin-ui
+  policyTypes: [Ingress, Egress]
+  ingress:
+  # Only Traefik may reach the Admin UI
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: traefik
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: llm-core
+      podSelector:
+        matchLabels:
+          app: litellm
+    ports:
+    - protocol: TCP
+      port: 4000
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: llm-core
+      podSelector:
+        matchLabels:
+          app: open-webui
+    ports:
+    - protocol: TCP
+      port: 8080
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: authentik
+          app.kubernetes.io/component: server
+    ports:
+    - protocol: TCP
+      port: 9000
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

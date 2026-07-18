@@ -39,8 +39,8 @@ application routes**:
 |---|---|---|
 | `llm.domain.com` | `http://traefik.llm-platform:80` | Now |
 | `api.domain.com` | `http://traefik.llm-platform:80` | Now |
-| `auth.domain.com` | `http://traefik.llm-platform:80` | † [Step 15](14-identity-sso.md) — after Authentik and its `auth.` HTTPRoute exist |
-| `admin.domain.com` | `http://traefik.llm-platform:80` | † [Step 17](16-admin-ui.md) — after the Admin UI and its `admin.` HTTPRoute exist |
+| `auth.domain.com` | `http://traefik.llm-platform:80` | † [Step 14](14-identity-sso.md) — after Authentik and its `auth.` HTTPRoute exist |
+| `admin.domain.com` | `http://traefik.llm-platform:80` | † [Step 16](16-admin-ui.md) — after the Admin UI and its `admin.` HTTPRoute exist |
 
 > **† Add the last two rows later.** The `core-gateway` has `auth.` and `admin.`
 > listeners, but no HTTPRoute attaches to them until Authentik (step 14) and the
@@ -76,8 +76,10 @@ at CF Access and protected by LiteLLM auth + WAF rules downstream.
 
 > **Accepted residual:** there is no edge-level identity check before a request
 > reaches LiteLLM. The WAF allowlist (below) blocks all non-inference paths, and
-> the LiteLLM virtual key is required for every inference request. Admin
-> operations are Tailscale-only and never routed through the tunnel.
+> the LiteLLM virtual key is required for every inference request. LiteLLM's own
+> `/key/*` admin endpoints are Tailscale-only and never routed through the
+> `api.` tunnel directly — friend/key/user administration instead goes through
+> the separately-gated Admin UI at `admin.domain.com` (step 16).
 
 **Required WAF rule** — an **allowlist** in Security → WAF → **Custom rules** on
 the `api.domain.com` **zone** (free plan allows 5 custom rules here; this is *not*
@@ -193,7 +195,9 @@ An *unexpected* extra connector is the primary indicator of a leaked token.
 - UI: edge identity (CF Access email allowlist) **+** app login (Open WebUI).
 - API: LiteLLM virtual key (per-user auth, budgets, rate limits) **+** WAF
   path allowlist (blocks all non-inference paths) **+** per-IP rate limit.
-  Admin operations require Tailscale access only — never routed through the tunnel.
+  LiteLLM's own admin endpoints require Tailscale access only — never routed
+  through the `api.` tunnel directly. Friend/key/user administration instead
+  goes through the separately-gated Admin UI at `admin.domain.com` (step 16).
 - The inference engine is never exposed — cloudflared reaches only Traefik, which
   routes only to `open-webui` and `litellm`. Even a full cloudflared compromise
   gives no path to inference: the `inference-policy` NetworkPolicy

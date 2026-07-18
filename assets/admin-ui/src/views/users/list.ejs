@@ -1,0 +1,27 @@
+<%- include("../partials/header", { title: "Authentik users" }) %>
+<p><a href="/users/new">Create user</a> — or use <a href="/friends/api">Add API friend</a> /
+   <a href="/friends/ui">Add UI friend</a> to also mint a key or assign a group in one step.</p>
+<table>
+  <thead>
+    <tr><th>Username</th><th>Email</th><th>Active</th><th>Groups</th><th></th></tr>
+  </thead>
+  <tbody>
+  <% users.forEach(function (u) { %>
+    <tr>
+      <td><%= u.username %></td>
+      <td><%= u.email %></td>
+      <td><%= u.is_active ? "yes" : "no" %></td>
+      <td><%= (u.groups_obj || []).map(function (g) { return g.name; }).join(", ") %></td>
+      <td>
+        <% if (u.is_active) { %>
+        <form method="post" action="/users/<%= u.pk %>/deactivate" onsubmit="return confirm('Deactivate this user?');">
+          <%- include("../partials/csrf-field") %>
+          <button type="submit">Deactivate</button>
+        </form>
+        <% } %>
+      </td>
+    </tr>
+  <% }) %>
+  </tbody>
+</table>
+<%- include("../partials/footer") %>

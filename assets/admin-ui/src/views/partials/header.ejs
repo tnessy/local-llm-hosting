@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= title %> · Admin UI</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <nav>
+      <a href="/">Dashboard</a>
+      <a href="/friends/api">Add API friend</a>
+      <a href="/friends/ui">Add UI friend</a>
+      <a href="/keys">Keys</a>
+      <a href="/users">Authentik users</a>
+      <a href="/webui-users">Open WebUI users</a>
+    </nav>
+    <% if (user) { %>
+      <form method="post" action="/logout" class="logout">
+        <%- include("csrf-field") %>
+        <span><%= user.email %></span>
+        <button type="submit">Log out</button>
+      </form>
+    <% } %>
+  </header>
+  <main>
+    <h1><%= title %></h1>

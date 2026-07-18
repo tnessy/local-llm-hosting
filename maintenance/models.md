@@ -15,6 +15,13 @@
 > (and knowing the graceful alias trick) avoids "the key works but the model
 > disappeared" support pings from friends.
 
+> **⚠️ If this host's `assets/*.yaml` were never localized** — still generic
+> `<placeholder>` names, with the real config living only in the live ConfigMaps — do
+> **not** rebuild the ConfigMap from the asset as below: it would overwrite the running
+> models and break the coder. Use the reconcile-from-live-ConfigMap flow, and see the
+> deploy-failure ladder in [model-troubleshooting.md](model-troubleshooting.md). Record
+> host specifics in `deployments/<host>.md`.
+
 ## The two names (read this first)
 
 A served model has **two** names, and they're often — but need not be — equal:

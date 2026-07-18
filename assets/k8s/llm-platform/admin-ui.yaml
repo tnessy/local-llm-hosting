@@ -1,0 +1,103 @@
+# Operator control plane: friend key lifecycle (LiteLLM), Authentik user
+# provisioning, Open WebUI account visibility. v1 has no workspace/orchestrator
+# integration — step 15 doesn't exist yet. See 16-admin-ui.md.
+#
+# Credentials come from litellm-credentials (reused, step 04 §3) and the new
+# admin-ui-credentials Secret (this step) via secretKeyRef — never inline
+# value: fields, which are readable from the pod spec by anything with pods:get.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-ui
+  namespace: llm-platform
+  labels:
+    app: admin-ui
+spec:
+  # MemoryStore sessions (src/auth/session.ts) only work correctly at
+  # replicas: 1 — do not scale this up without moving sessions to a shared store.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admin-ui
+  template:
+    metadata:
+      labels:
+        app: admin-ui
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: admin-ui
+        image: localhost:32000/admin-ui:latest   # pin to digest — step 04 §6
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+        - name: OIDC_ISSUER
+          value: https://auth.domain.com/application/o/admin-ui/
+        - name: OIDC_REDIRECT_URI
+          value: https://admin.domain.com/callback
+        - name: REQUIRED_GROUP
+          value: grp-admin
+        - name: SESSION_DURATION_HOURS
+          value: "4"
+        - name: LITELLM_URL
+          value: http://litellm.llm-core:4000
+        - name: AUTHENTIK_URL
+          value: http://authentik-server.llm-platform:9000
+        - name: OPENWEBUI_URL
+          value: http://open-webui.llm-core:8080
+        - name: LITELLM_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: litellm-credentials
+              key: master-key
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: admin-ui-credentials
+              key: session-secret
+        - name: CSRF_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: admin-ui-credentials
+              key: csrf-secret
+        - name: AUTHENTIK_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: admin-ui-credentials
+              key: authentik-token
+        - name: OPENWEBUI_ADMIN_KEY
+          valueFrom:
+            secretKeyRef:
+              name: admin-ui-credentials
+              key: openwebui-admin-key
+        - name: OIDC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: admin-ui-credentials
+              key: oidc-client-id
+        - name: OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: admin-ui-credentials
+              key: oidc-client-secret
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-ui
+  namespace: llm-platform
+spec:
+  selector:
+    app: admin-ui
+  ports:
+  - port: 8080
+    targetPort: 8080

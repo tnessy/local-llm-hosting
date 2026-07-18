@@ -1,0 +1,32 @@
+<%- include("../partials/header", { title: "Open WebUI users" }) %>
+<p>Accounts appear automatically on first login (trusted-header SSO) — nothing to create here.</p>
+<table>
+  <thead>
+    <tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr>
+  </thead>
+  <tbody>
+  <% users.forEach(function (u) { %>
+    <tr>
+      <td><%= u.name %></td>
+      <td><%= u.email %></td>
+      <td><%= u.role %></td>
+      <td>
+        <form method="post" action="/webui-users/<%= u.id %>/role" class="inline">
+          <%- include("../partials/csrf-field") %>
+          <select name="role">
+            <option value="user" <%= u.role === "user" ? "selected" : "" %>>user</option>
+            <option value="admin" <%= u.role === "admin" ? "selected" : "" %>>admin</option>
+            <option value="pending" <%= u.role === "pending" ? "selected" : "" %>>pending</option>
+          </select>
+          <button type="submit">Set role</button>
+        </form>
+        <form method="post" action="/webui-users/<%= u.id %>/delete" onsubmit="return confirm('Delete this Open WebUI account?');">
+          <%- include("../partials/csrf-field") %>
+          <button type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+  <% }) %>
+  </tbody>
+</table>
+<%- include("../partials/footer") %>
