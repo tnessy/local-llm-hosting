@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import helmet from "helmet";
+import cookieParser from "cookie-parser";
 import { config } from "./config.js";
 import { sessionMiddleware } from "./auth/session.js";
 import { requireAuth, requireAdminGroup } from "./auth/middleware.js";
@@ -29,10 +30,13 @@ export function createApp() {
   app.use(express.static(path.join(__dirname, "public")));
   app.use(express.urlencoded({ extended: false }));
 
-  // Order below is load-bearing: session must exist before CSRF (which keys
-  // off the session id), CSRF must exist before authRouter (so POST /logout
-  // is covered), and requireAuth/requireAdminGroup must come after authRouter
-  // (so /login and /callback stay reachable while logged out).
+  // Order below is load-bearing: cookie-parser must exist before CSRF (which
+  // reads/writes the admin_ui_csrf cookie via req.cookies), session must
+  // exist before CSRF (which keys off the session id), CSRF must exist before
+  // authRouter (so POST /logout is covered), and requireAuth/requireAdminGroup
+  // must come after authRouter (so /login and /callback stay reachable while
+  // logged out).
+  app.use(cookieParser());
   app.use(sessionMiddleware);
   app.use(doubleCsrfProtection);
   app.use((req: Request, res: Response, next: NextFunction) => {
