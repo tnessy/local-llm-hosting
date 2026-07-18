@@ -124,7 +124,7 @@ first drafted.
 
 | Secret | Key | Used for |
 |---|---|---|
-| `litellm-credentials` (existing, step 04/06) | `master-key` | Friend key mint/revoke/list |
+| `litellm-credentials` (mirrored into `llm-platform`, this step) | `master-key` | Friend key mint/revoke/list |
 | `admin-ui-credentials` (new, this step) | `session-secret` | `express-session` cookie signing |
 | ″ | `csrf-secret` | CSRF double-submit cookie signing |
 | ″ | `authentik-token` | User creation, group assignment, deactivation |
@@ -135,6 +135,14 @@ All via `secretKeyRef` — never a literal `value:` field (H-12 pattern: the
 orchestrator, once it exists, has cluster-wide `pods: get/list/watch`, and
 anything in a literal env field is readable from the pod spec without
 touching the Secrets API).
+
+k8s Secrets are namespace-scoped, so a `secretKeyRef` can only resolve a
+Secret in the *same* namespace as the pod. `litellm-credentials` was created
+in `llm-core` (step 04 §3), but the Admin UI runs in `llm-platform` — so a
+**second copy**, containing only `master-key` (not `salt-key`, which the
+Admin UI never needs), has to exist in `llm-platform` too. See §4 below. If
+the master key is ever rotated, both copies must be patched — see
+[13-operations.md](13-operations.md) §Key & access hygiene.
 
 ---
 
@@ -185,7 +193,15 @@ sudo docker inspect --format='{{index .RepoDigests 0}}' localhost:32000/admin-ui
 Hand-edit `assets/k8s/llm-platform/admin-ui.yaml`'s `image:` line to
 `localhost:32000/admin-ui:latest@sha256:<digest>` (step 04 §6).
 
-## 4. Create the `admin-ui-credentials` Secret
+## 4. Mirror the LiteLLM master key, then create `admin-ui-credentials`
+
+`llm-platform` needs its own copy of `master-key` — k8s Secrets don't cross
+namespaces (see above):
+
+```bash
+LITELLM_MASTER_KEY=$(microk8s kubectl get secret litellm-credentials -n llm-core -o jsonpath='{.data.master-key}' | base64 -d)
+microk8s kubectl create secret generic litellm-credentials -n llm-platform --from-literal=master-key="$LITELLM_MASTER_KEY"
+```
 
 `oidc-client-id`/`oidc-client-secret` are seeded empty and patched once the
 Authentik provider exists (§1 above) — mirrors the `openwebui-credentials`

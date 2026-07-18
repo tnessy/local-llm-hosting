@@ -26,6 +26,9 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1000   # alpine node image's built-in `node` user; kubelet/containerd
+                          # can't resolve a non-numeric USER from image config to verify
+                          # runAsNonRoot, so it must be spelled out numerically here
         seccompProfile:
           type: RuntimeDefault
       containers:

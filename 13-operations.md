@@ -185,7 +185,18 @@ microk8s kubectl rollout restart deploy/open-webui -n llm-core
   4. Re-mint a replacement key for every friend and send them the new values.
 
   For routine hygiene, rotate `master-key` instead — that affects admin access
-  only and does not touch friend virtual keys.
+  only and does not touch friend virtual keys. If you do, also patch the
+  Admin UI's copy — `master-key` is mirrored into a second `litellm-credentials`
+  Secret in `llm-platform` (step 16, since k8s Secrets are namespace-scoped and
+  the Admin UI pod lives outside `llm-core`):
+  ```bash
+  microk8s kubectl patch secret litellm-credentials -n llm-core --type merge -p "{\"stringData\":{\"master-key\":\"$NEW_MASTER_KEY\"}}"
+  microk8s kubectl patch secret litellm-credentials -n llm-platform --type merge -p "{\"stringData\":{\"master-key\":\"$NEW_MASTER_KEY\"}}"
+  microk8s kubectl rollout restart deploy/litellm -n llm-core
+  microk8s kubectl rollout restart deploy/admin-ui -n llm-platform
+  ```
+  Skipping the second patch leaves the Admin UI silently using the old key —
+  every LiteLLM call it makes (`/key/list`, mint, revoke) starts 401ing.
 - Keep the `litellm-credentials` Secret values in your password manager; they are
   encrypted at rest in the cluster and never written to disk in plaintext.
 - Tailscale: review devices; the server node has key-expiry disabled, your
