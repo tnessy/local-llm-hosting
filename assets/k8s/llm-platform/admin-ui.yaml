@@ -33,7 +33,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: admin-ui
-        image: localhost:32000/admin-ui:latest@sha256:caf6e85506041b1984e1f5e5cd2538667bd486c23587ef479d9d882d3a32b6ac
+        image: localhost:32000/admin-ui:latest@sha256:5faa380dbacac294c88c1202e108cf78bc9fe404a55d86be42e108a19434b4fc
         ports:
         - containerPort: 8080
         env:
