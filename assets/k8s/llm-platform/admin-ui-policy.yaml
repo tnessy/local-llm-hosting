@@ -54,7 +54,30 @@ spec:
           app.kubernetes.io/component: server
     ports:
     - protocol: TCP
-      port: 9000
+      port: 80
+  # Public internet on HTTPS — the Admin UI is the only in-cluster service that
+  # does real OIDC discovery + authorization-code exchange (Open WebUI uses
+  # trusted-header auth; Cloudflare Access's own OIDC federation to Authentik
+  # happens from Cloudflare's infrastructure, not from in-cluster). Authentik's
+  # issuer/endpoint URLs are derived from the request Host header, so calls
+  # against the in-cluster Service would return internal-only URLs the user's
+  # browser could never reach — this pod has to hit the same public
+  # auth.domain.com endpoint a browser would. Same pattern (and same
+  # RFC1918/CGNAT/link-local/loopback exclusions) as open-webui-policy /
+  # cloudflared-policy.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 100.64.0.0/10
+        - 169.254.0.0/16
+        - 127.0.0.0/8
+    ports:
+    - protocol: TCP
+      port: 443
   - to:
     - namespaceSelector:
         matchLabels:

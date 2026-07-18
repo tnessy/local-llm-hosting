@@ -23,7 +23,7 @@ export const config = {
   litellmUrl: process.env.LITELLM_URL ?? "http://litellm.llm-core:4000",
   litellmMasterKey: required("LITELLM_MASTER_KEY"),
 
-  authentikUrl: process.env.AUTHENTIK_URL ?? "http://authentik-server.llm-platform:9000",
+  authentikUrl: process.env.AUTHENTIK_URL ?? "http://authentik-server.llm-platform:80",
   authentikToken: required("AUTHENTIK_TOKEN"),
 
   openwebuiUrl: process.env.OPENWEBUI_URL ?? "http://open-webui.llm-core:8080",

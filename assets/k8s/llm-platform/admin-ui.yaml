@@ -50,7 +50,7 @@ spec:
         - name: LITELLM_URL
           value: http://litellm.llm-core:4000
         - name: AUTHENTIK_URL
-          value: http://authentik-server.llm-platform:9000
+          value: http://authentik-server.llm-platform:80
         - name: OPENWEBUI_URL
           value: http://open-webui.llm-core:8080
         - name: LITELLM_MASTER_KEY

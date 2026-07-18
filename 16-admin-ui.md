@@ -44,7 +44,9 @@ server-rendered EJS views — no SPA build step).
 │                         │ internal APIs directly                             │
 │                         │                                                    │
 │                         ├──► litellm :4000       (friend key management)    │
-│                         ├──► authentik :9000      (user provisioning)       │
+│                         ├──► authentik :80        (user provisioning, REST) │
+│                         ├──► auth.domain.com :443 (OIDC discovery/token —   │
+│                         │                          public URL, see below)   │
 │                         └──► open-webui :8080     (UI user management)      │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -109,8 +111,24 @@ admin function even if CF Access is misconfigured.
 
 `assets/k8s/llm-platform/admin-ui-policy.yaml` is the real NetworkPolicy:
 ingress from Traefik only; egress to litellm (`llm-core:4000`), open-webui
-(`llm-core:8080`), authentik-server (`:9000`), and kube-dns. No orchestrator
-egress rule in v1.
+(`llm-core:8080`), authentik-server (`:80` — the Service port; the pod itself
+listens on `:9000`, but nothing routes to that directly except the Service),
+kube-dns, and the public internet on `:443` (RFC1918/CGNAT/link-local/loopback
+excluded, same pattern as `open-webui-policy`/`cloudflared-policy`). No
+orchestrator egress rule in v1.
+
+**Why the Admin UI needs internet egress, unlike everything else it calls:**
+it's the only in-cluster service doing real OIDC discovery and
+authorization-code exchange. Open WebUI uses trusted-header auth behind
+Cloudflare Access (no OIDC client on its side); Cloudflare Access's own OIDC
+federation to Authentik runs from Cloudflare's infrastructure, not from
+inside the cluster. Authentik derives every URL in its discovery document
+(`issuer`, `authorization_endpoint`, `token_endpoint`, ...) from the request's
+`Host` header — querying it via the in-cluster Service returns
+`http://authentik-server.llm-platform/...`, which is correct for internal
+reachability but useless to a real browser. So the Admin UI has to hit the
+same public `https://auth.domain.com/...` endpoint a browser would, for both
+the initial discovery call and the later token exchange.
 
 **No edits were needed** to `litellm-policy`, `open-webui-policy`
 (`assets/k8s/llm-core/networkpolicies.yaml`), or `authentik-server-policy`
