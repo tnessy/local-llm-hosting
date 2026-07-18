@@ -30,7 +30,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: admin-ui
-        image: localhost:32000/admin-ui:latest   # pin to digest — step 04 §6
+        image: localhost:32000/admin-ui:latest@sha256:caf6e85506041b1984e1f5e5cd2538667bd486c23587ef479d9d882d3a32b6ac
         ports:
         - containerPort: 8080
         env:

@@ -1,2 +1,4 @@
 deployments/
 .aider*
+node_modules/
+dist/
