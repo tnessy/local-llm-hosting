@@ -33,7 +33,8 @@ spec:
           type: RuntimeDefault
       containers:
       - name: admin-ui
-        image: localhost:32000/admin-ui:latest@sha256:5faa380dbacac294c88c1202e108cf78bc9fe404a55d86be42e108a19434b4fc
+        image: localhost:32000/admin-ui:latest   # pin to digest once verified working — step 04 §6
+        imagePullPolicy: Always   # :latest is mutable during iteration; force a re-pull on every restart
         ports:
         - containerPort: 8080
         env:
