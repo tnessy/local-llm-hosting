@@ -26,7 +26,20 @@ export function createApp() {
   app.set("view engine", "ejs");
   app.set("views", path.join(__dirname, "views"));
 
-  app.use(helmet());
+  // script-src exception for Cloudflare's auto-injected analytics beacon
+  // (static.cloudflareinsights.com) — Cloudflare adds this to proxied HTML
+  // responses regardless of app-level CSP; without the exception it's just
+  // silently blocked (harmless) but logs a CSP violation on every page.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          "script-src": ["'self'", "https://static.cloudflareinsights.com"],
+        },
+      },
+    }),
+  );
   app.use(express.static(path.join(__dirname, "public")));
   app.use(express.urlencoded({ extended: false }));
 
@@ -42,7 +55,12 @@ export function createApp() {
   app.use((req: Request, res: Response, next: NextFunction) => {
     res.locals.user = req.session.user;
     res.locals.requiredGroup = config.requiredGroup;
-    res.locals.csrfToken = generateCsrfToken(req, res);
+    // validateOnReuse=false: this call just populates a token for rendering,
+    // not real request validation (doubleCsrfProtection above already handled
+    // that) — a stale cookie from before a session-store reset (in-memory
+    // MemoryStore, wiped on every pod restart) should silently get a fresh
+    // token, not 500 the page.
+    res.locals.csrfToken = generateCsrfToken(req, res, false, false);
     next();
   });
 

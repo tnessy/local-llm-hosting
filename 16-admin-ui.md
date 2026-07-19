@@ -246,11 +246,28 @@ Account → API Keys, in the Open WebUI UI.
 
 ## 5. Apply the k8s assets
 
+`admin-ui.yaml` and `admin-ui-httproute.yaml` have a literal `domain.com`
+placeholder — `admin-ui-policy.yaml` doesn't (label/CIDR-based only), so it's
+safe to apply straight from `assets/`. For the other two, either substitute
+the domain inline before applying:
+
+```bash
+sed -i 's/domain\.com/yourdomain.tld/g' assets/k8s/llm-platform/admin-ui.yaml assets/k8s/llm-platform/admin-ui-httproute.yaml
+```
+
+or, faster for repeated iteration, keep a reconciled copy with the real
+domain baked in under gitignored `deployments/k8s/llm-platform/` (mirrors the
+`deployments/surtr.md` pattern for host-specific values) and apply from
+there instead — no `sed` needed on every pull, at the cost of manually
+copying over any future edit to the generic template. Once a change is
+confirmed working, fold the non-domain-specific parts back into `assets/`
+so the generic template doesn't drift stale.
+
 ```bash
 microk8s kubectl apply \
-  -f assets/k8s/llm-platform/admin-ui.yaml \
+  -f deployments/k8s/llm-platform/admin-ui.yaml \
   -f assets/k8s/llm-platform/admin-ui-policy.yaml \
-  -f assets/k8s/llm-platform/admin-ui-httproute.yaml
+  -f deployments/k8s/llm-platform/admin-ui-httproute.yaml
 ```
 
 ## 6. Cloudflare
