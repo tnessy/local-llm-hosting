@@ -54,7 +54,16 @@ spec:
           app.kubernetes.io/component: server
     ports:
     - protocol: TCP
-      port: 80
+      port: 9000
+    # NOTE: this must be the Service's *targetPort* (9000, what authentik-server
+    # actually listens on), not the Service's port (80, what AUTHENTIK_URL dials
+    # in admin-ui.yaml). On this cluster, Calico enforces egress NetworkPolicy
+    # against the post-DNAT destination port, i.e. after kube-proxy has already
+    # rewritten ClusterIP:80 -> podIP:9000 — a rule for port 80 here silently
+    # blackholes every request past the TCP handshake. Confirmed empirically
+    # 2026-07-19: port 80 here reproduced 100% "fetch failed"/connect-timeout;
+    # port 9000 reproduced 100% success, with AUTHENTIK_URL unchanged at :80.
+    # Must match authentik-server-policy's ingress port (also 9000).
   # Public internet on HTTPS — the Admin UI is the only in-cluster service that
   # does real OIDC discovery + authorization-code exchange (Open WebUI uses
   # trusted-header auth; Cloudflare Access's own OIDC federation to Authentik

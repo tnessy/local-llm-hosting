@@ -1,0 +1,119 @@
+# Official Microsoft playwright-mcp — real headless Chromium via Playwright,
+# for cases mcp-searxng's web_url_read can't handle (JS-rendered pages).
+# Native standalone HTTP server (no Supergateway bridge needed), same shape
+# as mcp-searxng. No built-in auth on this server (unlike mcp-searxng's
+# MCP_HTTP_AUTH_TOKEN) — NetworkPolicy is the only access boundary here,
+# consistent with mcp-bridge-time's precedent.
+#
+# --allowed-hosts is required: the server has its own DNS-rebinding guard
+# that rejects any Host header other than localhost by default (confirmed via
+# a real 403 "Access is only allowed at localhost:8000" when hit via the
+# Service DNS name, despite --host=0.0.0.0) — same class of bug as
+# mcp-searxng's MCP_HTTP_ALLOWED_HOSTS.
+#
+# Labels reuse the app: mcp-bridge convention — ingress from litellm on 8000
+# is already covered by the shared mcp-bridge-policy, as is egress to the
+# public internet (which is exactly what this pod needs: it fetches arbitrary
+# external sites directly, no internal backend like searxng has). No new
+# NetworkPolicy required, unlike mcp-searxng.
+#
+# NOT running --isolated, despite the disposable-state philosophy used
+# elsewhere in this file (searxng's cache, etc.) — confirmed empirically that
+# LiteLLM's MCP gateway opens a brand-new backend session for every single
+# tools/call, even within one persistent client (Open WebUI/toolset) session.
+# --isolated creates a fresh, empty browser context per *backend* session, so
+# browser_navigate followed by browser_snapshot would always see an empty
+# about:blank page — multi-step browsing silently never works. Running a
+# single persistent profile instead (--user-data-dir, emptyDir-backed so it's
+# wiped on pod restart but not per-call) makes browser state live independent
+# of LiteLLM's per-call session churn. Real tradeoff, accepted deliberately:
+# one shared browser instance (fine — single-user cluster, no concurrent
+# clients), and cookies/login state now persist across separate, unrelated
+# chat conversations until the pod restarts. See 17-mcp-registry.md.
+#
+# /dev/shm is explicitly sized up via emptyDir since Chromium is known to
+# crash in containers with the tiny default shared memory allocation
+# ("Failed to create shared memory" / no usable sandbox).
+#
+# See 17-mcp-registry.md for the MCP Toolset pattern this feeds into
+# (web_research toolset combines this server's browser_* tools with
+# web_search's search tools, deliberately excluding web_url_read).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-playwright
+  namespace: llm-core
+  labels:
+    app: mcp-bridge
+    mcp-server: playwright
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-bridge
+      mcp-server: playwright
+  template:
+    metadata:
+      labels:
+        app: mcp-bridge
+        mcp-server: playwright
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000   # verify against the image's actual user on first deploy; adjust if it crash-loops on permissions
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: mcp-playwright
+        image: mcr.microsoft.com/playwright/mcp@sha256:3d871c22ea2d4cca0966e2cfb1860e1cb03eb7353725a3d6cffd133296fb04eb   # v0.0.78
+        args:
+        - "--headless"
+        - "--browser=chromium"
+        - "--no-sandbox"
+        - "--user-data-dir=/data/profile"   # persistent profile, not --isolated — see header comment
+        - "--host=0.0.0.0"   # default localhost isn't reachable via the k8s Service
+        - "--port=8000"      # matches the shared mcp-bridge-policy's hardcoded ingress port
+        - "--allowed-hosts=mcp-playwright.llm-core:8000,mcp-playwright.llm-core"   # DNS-rebinding guard defaults to
+                                                                                     # localhost-only, which rejects
+                                                                                     # LiteLLM's requests (Host header
+                                                                                     # is the Service DNS name) — same
+                                                                                     # class of bug as mcp-searxng's
+                                                                                     # MCP_HTTP_ALLOWED_HOSTS
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+        - name: profile
+          mountPath: /data/profile
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 1Gi
+      - name: profile
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-playwright
+  namespace: llm-core
+spec:
+  selector:
+    app: mcp-bridge
+    mcp-server: playwright
+  ports:
+  - port: 8000
+    targetPort: 8000

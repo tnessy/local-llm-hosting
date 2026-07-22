@@ -89,6 +89,16 @@ spec:
     ports:
     - port: 5432
       protocol: TCP
+  # MCP Supergateway bridges (step 17) — any pod labeled app: mcp-bridge, regardless
+  # of which stdio server it wraps. One rule covers every current and future bridge;
+  # adding a new MCP server never needs a NetworkPolicy edit here.
+  - to:
+    - podSelector:
+        matchLabels:
+          app: mcp-bridge
+    ports:
+    - port: 8000
+      protocol: TCP
   # Public internet on HTTPS — LiteLLM routes some models to hosted APIs, and on
   # startup Prisma downloads its migration engine and fetches the model cost map.
   # Excludes RFC1918 / CGNAT / link-local / loopback so litellm can't reach the LAN
@@ -152,7 +162,58 @@ spec:
     - port: 53
       protocol: TCP
 ---
-# open-webui: ingress from traefik (llm-platform); egress to litellm + HTTPS + dns.
+# mcp-bridge: one policy covers every Supergateway bridge pod (step 17), keyed off
+# the shared `app: mcp-bridge` label — ingress from litellm only; egress DNS + HTTPS
+# for the pinned-package fetch at startup (same pattern as litellm/open-webui's own
+# public-internet rules below). Tighten to DNS-only per-tool (drop the :443 rule by
+# duplicating this policy with a narrower podSelector, e.g. `mcp-server: <name>`)
+# only if a specific future server needs zero egress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-bridge-policy
+  namespace: llm-core
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-bridge
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: litellm
+    ports:
+    - port: 8000
+      protocol: TCP
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 100.64.0.0/10
+        - 169.254.0.0/16
+        - 127.0.0.0/8
+    ports:
+    - port: 443
+      protocol: TCP
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+---
+# open-webui: ingress from traefik (llm-platform); egress to litellm + mcp-playwright + HTTPS + dns.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -178,6 +239,21 @@ spec:
           app: litellm
     ports:
     - port: 4000
+      protocol: TCP
+  # Direct to mcp-playwright, bypassing litellm entirely — LiteLLM's MCP
+  # gateway can't preserve session state across separate tool calls (confirmed
+  # empirically + upstream: BerriAI/litellm deliberately reverted an attempt
+  # at stateful sessions, see mcp-playwright.yaml), which breaks Playwright's
+  # navigate-then-snapshot pattern. Open WebUI's own MCP client manages real
+  # sessions correctly, so a direct connection is the only way to get working
+  # multi-step browsing today. See 17-mcp-registry.md.
+  - to:
+    - podSelector:
+        matchLabels:
+          app: mcp-bridge
+          mcp-server: playwright
+    ports:
+    - port: 8000
       protocol: TCP
   # Public internet on HTTPS — Open WebUI downloads its RAG embedding model
   # (all-MiniLM-L6-v2) from HuggingFace on first start and caches it to its PVC.
@@ -207,4 +283,108 @@ spec:
     - port: 53
       protocol: UDP
     - port: 53
+      protocol: TCP
+---
+# searxng: ingress from its mcp-searxng wrapper only; egress to DNS + public
+# HTTPS (search engines — the widest legitimate egress footprint in this
+# cluster, since it fans out to many different search-engine domains that
+# can't be scoped to individual IPs, same "except private ranges" shape as
+# litellm/open-webui/mcp-bridge's own public-internet rules). No Valkey — it
+# was deployed, tested, and removed (its only consumer, the rate-limiter,
+# doesn't work in this internal-only topology — see searxng.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: searxng-policy
+  namespace: llm-core
+spec:
+  podSelector:
+    matchLabels:
+      app: searxng
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: mcp-bridge
+          mcp-server: searxng
+    ports:
+    - port: 8080
+      protocol: TCP
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 100.64.0.0/10
+        - 169.254.0.0/16
+        - 127.0.0.0/8
+    ports:
+    - port: 443
+      protocol: TCP
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+---
+# mcp-searxng: narrowly-scoped addition on top of the shared mcp-bridge-policy
+# (which already covers ingress from litellm on 8000). The shared policy's
+# egress excludes private IP ranges by design (built for reaching public
+# npm/PyPI registries), so it doesn't cover this pod's need to reach the
+# internal searxng service — hence this separate, precisely-scoped policy
+# rather than widening the shared one for every mcp-bridge pod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-searxng-policy
+  namespace: llm-core
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-bridge
+      mcp-server: searxng
+  policyTypes: [Egress]
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: searxng
+    ports:
+    - port: 8080
+      protocol: TCP
+---
+# mcp-playwright: narrowly-scoped addition on top of the shared
+# mcp-bridge-policy (which already covers ingress from litellm and egress to
+# the public internet on 8000/443). Open WebUI connects to this pod directly,
+# bypassing litellm — see open-webui-policy's egress rule and mcp-playwright.yaml
+# for why. This is the ingress half of that same direct path.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-playwright-policy
+  namespace: llm-core
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-bridge
+      mcp-server: playwright
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: open-webui
+    ports:
+    - port: 8000
       protocol: TCP

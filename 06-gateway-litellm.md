@@ -62,6 +62,14 @@ microk8s kubectl patch secret openwebui-credentials -n llm-core --type merge -p 
 microk8s kubectl rollout restart deploy/open-webui -n llm-core
 ```
 
+> **Right after this restart**, do the one-time check in
+> [step 07 §4](07-webui-open-webui.md#4-confirm-the-models-appear) (the
+> `ENABLE_PERSISTENT_CONFIG` callout) — Open WebUI's *first* boot happened
+> back in step 04, before this key existed, and its database only
+> overrides that empty value if you confirm/resave the connection in the
+> Admin UI once. Skipping it means no models show up despite this key
+> being correct.
+
 ## 3. Mint a key per API friend
 
 One key each, with guardrails:

@@ -54,13 +54,35 @@ llama-swap). If empty:
   `http://litellm.llm-core:4000/v1`,
 - models exist (after [step 05](05-inference-tabbyapi-llamaswap.md)).
 
-> **Why the manifest sets `ENABLE_PERSISTENT_CONFIG=false`:** Open WebUI seeds
-> config (including the OpenAI connection) from env vars on *first boot*, then
-> reads its DB thereafter. This pod first boots in [step 04](04-deploy-stack-ubuntu.md)
-> — **before** the `litellm-key` is minted in [step 06](06-gateway-litellm.md) — so
-> without this flag it would persist an empty connection and show **no models** even
-> after the key is set. `false` makes the env (from the `openwebui-credentials`
-> Secret) authoritative on every boot. Verify the backend independently of the UI:
+> **Why the manifest sets `ENABLE_PERSISTENT_CONFIG=true`:** any setting you
+> change through the Admin Settings UI — tool server connections (step 17),
+> the OpenAI connection, anything — needs to survive pod restarts. With this
+> `false`, Open WebUI keeps admin-panel changes only in the running
+> process's memory and silently discards them on every restart (a real
+> problem, not theoretical — an MCP tool server connection kept vanishing
+> in step 17 before this was understood).
+>
+> **The tradeoff, and the one-time step this requires:** Open WebUI's own
+> `seed_defaults` logic only writes a config key to its database *if that
+> key doesn't already exist there* — existing DB values always win over env
+> vars from then on. This pod first boots in
+> [step 04](04-deploy-stack-ubuntu.md), **before** the `litellm-key` is
+> minted in [step 06](06-gateway-litellm.md), so that very first boot
+> persists an *empty* OpenAI connection into the database. Simply
+> restarting the pod after step 06 patches in the real key does **not** fix
+> this on its own — the empty value is already in the DB and wins. **After
+> step 06's restart, open Admin Panel → Settings → Connections and confirm
+> the OpenAI connection shows the real URL/key.** If it's blank or wrong,
+> re-enter it and save — a normal admin-UI save always overwrites the
+> stale value (unlike the once-only first-boot seed). Do this once, right
+> after step 06, and it's done for good.
+>
+> More generally: once any config key has a row in the database, changing
+> its backing env var later has no effect until you either update it again
+> through the Admin UI or manually clear that row — this is the new
+> operational model, not a bug.
+>
+> Verify the backend independently of the UI, regardless:
 >
 > ```bash
 > microk8s kubectl exec -n llm-core deploy/open-webui -- python3 -c "import urllib.request,os; k=os.environ['OPENAI_API_KEY']; print(urllib.request.urlopen(urllib.request.Request('http://litellm.llm-core:4000/v1/models', headers={'Authorization':'Bearer '+k})).read().decode())"

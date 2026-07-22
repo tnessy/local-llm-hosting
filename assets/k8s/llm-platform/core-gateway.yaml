@@ -8,9 +8,12 @@
 # HTTPRoutes attached to these listeners. The workspace-gateway (*.ws.domain.com)
 # is created separately in step 16.
 #
-# The ui/api listeners accept routes from llm-core (where core-httproutes.yaml
-# lives) and llm-platform. The admin/auth listeners accept routes only from
-# llm-platform; their HTTPRoutes are added in steps 17 and 15.
+# The ui/api/llm-admin listeners accept routes from llm-core (where
+# core-httproutes.yaml lives, since litellm and open-webui both live there) and
+# llm-platform. The admin/auth listeners accept routes only from llm-platform;
+# their HTTPRoutes are added in steps 16 and 14. llm-admin's HTTPRoute is added
+# in step 17 — it targets litellm's own /ui, gated separately from the
+# bypass/everyone `api` listener (see 17-mcp-registry.md).
 #
 # Replace domain.com with your domain.
 apiVersion: gateway.networking.k8s.io/v1
@@ -45,6 +48,18 @@ spec:
           - key: kubernetes.io/metadata.name
             operator: In
             values: [llm-platform, llm-core]
+  - name: llm-admin
+    hostname: "llm-admin.domain.com"
+    port: 8000          # Traefik `web` entryPoint (public :80 via the Service)
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: In
+            values: [llm-platform, llm-core]   # targets litellm, which lives in llm-core
   - name: admin
     hostname: "admin.domain.com"
     port: 8000          # Traefik `web` entryPoint (public :80 via the Service)

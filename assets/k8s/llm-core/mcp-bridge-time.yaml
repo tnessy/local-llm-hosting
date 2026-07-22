@@ -1,0 +1,88 @@
+# Supergateway bridge for a stdio-only MCP server ("time" is the pilot tool —
+# no secrets, no filesystem/shell access, good for validating the whole chain
+# before wiring up anything higher-risk). Wraps the stdio process and speaks
+# native MCP transport (streamable-HTTP) on :8000 so LiteLLM's MCP Gateway can
+# register it like any other MCP server.
+#
+# Deliberately NOT a custom-built image: always the official supergateway
+# image, pinned to a digest, with the wrapped package's exact version pinned
+# in `args` instead. See 17-mcp-registry.md for why (this repo already
+# accepts public :443 egress for litellm/open-webui's own runtime deps — the
+# same trust model applies here, and it avoids a rebuild-on-every-upstream-
+# release obligation for every MCP server added).
+#
+# Copy this file as the template for each new stdio MCP server: rename,
+# change the `mcp-server` label, swap the `--stdio` command (with a pinned
+# version). Keep the `app: mcp-bridge` label — that's what the shared
+# `mcp-bridge-policy` and the `litellm-policy` egress rule
+# (networkpolicies.yaml) key off of, so no NetworkPolicy edits are needed per
+# server.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-bridge-time
+  namespace: llm-core
+  labels:
+    app: mcp-bridge
+    mcp-server: time
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-bridge
+      mcp-server: time
+  template:
+    metadata:
+      labels:
+        app: mcp-bridge
+        mcp-server: time
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: supergateway
+        # The base/:latest image only bundles Node/npx — no Python/uv/uvx at all.
+        # uvx-based MCP servers (like this one) need the "-uvx" variant tag
+        # specifically; confirmed empirically 2026-07-19 after the base image
+        # crash-looped with "uvx: No such file or directory". npx-based servers
+        # can use the plain base image instead.
+        image: ghcr.io/supercorp-ai/supergateway@sha256:2ffee900c18d8375096b392c8be15cd344535a05b753a5b182da227ab6306a15   # 3.4.3-uvx, multi-arch index digest
+        args:
+          - --stdio
+          - "uvx mcp-server-time==2026.7.10 --local-timezone=Etc/UTC"   # latest on PyPI as of 2026-07-19; adjust timezone
+          # sse, not streamableHttp: registering this server in LiteLLM as
+          # transport "http" (streamable-HTTP) hit a client-side bug in this
+          # LiteLLM version (httpx_sse raised "UnsupportedProtocol" internally,
+          # and tool discovery silently returned zero tools instead of
+          # surfacing the error) — confirmed the bridge itself was spec-
+          # compliant via a raw curl test first. Registering as transport
+          # "sse" against this same bridge in sse mode works cleanly end to
+          # end (tools/list and tools/call both succeed). Try streamableHttp
+          # again on a future LiteLLM upgrade before assuming this is
+          # permanent.
+          - --outputTransport
+          - sse
+          - --port
+          - "8000"
+        ports:
+        - containerPort: 8000
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-bridge-time
+  namespace: llm-core
+spec:
+  selector:
+    app: mcp-bridge
+    mcp-server: time
+  ports:
+  - port: 8000
+    targetPort: 8000

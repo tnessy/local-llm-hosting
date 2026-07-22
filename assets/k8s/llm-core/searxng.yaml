@@ -1,0 +1,105 @@
+# Self-hosted metasearch engine, backing the "web_search" MCP server
+# (step 17). Cluster-internal only — never exposed via Cloudflare/WAF; the
+# only caller is the mcp-searxng wrapper. Most settings (secret key, port,
+# limiter) are plain env var overrides on the image's baked-in defaults —
+# the one exception is assets/searxng-settings.yml, mounted at
+# /etc/searxng/settings.yml, which enables the JSON output format (disabled
+# by default; mcp-searxng talks to the JSON API, not the HTML UI, and there
+# is no env var for this one setting). It merges with the defaults
+# (use_default_settings: true) rather than replacing them. Edit further only
+# if a specific engine needs disabling (some CAPTCHA/block over time) or
+# other tuning.
+#
+# No Valkey: its only consumer in SearXNG is the rate-limiter/bot-detection
+# subsystem (general query caching is a separate, unrelated SQLite
+# mechanism), and that subsystem requires an X-Forwarded-For/X-Real-IP
+# header that pod-to-pod cluster traffic never has — enabling it 429'd every
+# request outright rather than just being unnecessary overhead. Deployed,
+# tested, and removed 2026-07-22; see 17-mcp-registry.md for the general
+# lesson if reconsidering this for a future self-hosted backing service.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+  namespace: llm-core
+  labels:
+    app: searxng
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: searxng
+  template:
+    metadata:
+      labels:
+        app: searxng
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 977   # searxng image's own non-root user (Dockerfile: COPY --chown=977:977)
+        fsGroup: 977     # emptyDir mount writable by that user
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: searxng
+        image: docker.io/searxng/searxng@sha256:b8ca38ba06eea544d7555e88321e212ddc0d5c3c7de055419cfb2e5c6bf30812   # latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SEARXNG_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: searxng-credentials
+              key: secret-key
+        - name: SEARXNG_PORT
+          value: "8080"
+        - name: SEARXNG_BIND_ADDRESS
+          value: "0.0.0.0"
+        - name: SEARXNG_LIMITER
+          value: "false"  # Tried enabling this to give Valkey a purpose (its only
+                           # consumer is the limiter's bot-detection state, not
+                           # general caching) — broke real usage immediately: the
+                           # limiter's ip_limit method requires an X-Forwarded-For
+                           # or X-Real-IP header (normally added by a reverse proxy
+                           # for external traffic), which pod-to-pod cluster traffic
+                           # never has. Without it the limiter can't identify a
+                           # source IP and 429s everything outright (confirmed:
+                           # "X-Forwarded-For nor X-Real-IP header is set!", every
+                           # request blocked, Valkey still never written to). Not
+                           # viable for this internal-only topology — reverted.
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: cache
+          mountPath: /var/cache/searxng
+        - name: config
+          mountPath: /etc/searxng/settings.yml
+          subPath: searxng-settings.yml
+          readOnly: true
+      volumes:
+      - name: cache
+        emptyDir: {}
+      - name: config
+        configMap:
+          name: searxng-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: searxng
+  namespace: llm-core
+spec:
+  selector:
+    app: searxng
+  ports:
+  - port: 8080
+    targetPort: 8080

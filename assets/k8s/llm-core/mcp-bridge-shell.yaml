@@ -1,0 +1,115 @@
+# Supergateway bridge for command execution (mcp-shell-server, tumf/mcp-shell-server
+# on PyPI: https://github.com/tumf/mcp-shell-server). Unlike every other bridge in
+# this cluster, this one runs a CUSTOM image (assets/mcp-shell-server/Dockerfile)
+# instead of the official supergateway image + runtime `uvx` fetch — see that
+# Dockerfile's header and 17-mcp-registry.md §7 for why command execution is the
+# exception that justifies a custom build.
+#
+# ALLOW_COMMANDS below is the actual security boundary, and it only matches the
+# executable NAME, not its arguments — whitelisting `git` does not distinguish
+# `git status` from `git push`, whitelisting `curl` does not distinguish GET from
+# POST/PUT/DELETE. There is no per-argument restriction and no chroot/jail for the
+# commands themselves (mcp-shell-server confines relative paths and I/O redirection
+# to its working directory, but a whitelisted command can still read/write anywhere
+# its own permissions allow). readOnlyRootFilesystem + the scratch emptyDir below
+# are what actually bound the blast radius — read 17-mcp-registry.md §7 in full
+# before widening ALLOW_COMMANDS.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-bridge-shell
+  namespace: llm-core
+  labels:
+    app: mcp-bridge
+    mcp-server: shell
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-bridge
+      mcp-server: shell
+  template:
+    metadata:
+      labels:
+        app: mcp-bridge
+        mcp-server: shell
+    spec:
+      # No need for API server access, unlike orchestrator/admin-ui pods — turned
+      # off explicitly here given this pod's elevated risk, even though the other
+      # (lower-risk) mcp-bridge-* pods don't bother setting it.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: supergateway
+        image: localhost:32000/mcp-shell-server:latest   # pin to digest once verified working — step 04 §6
+        imagePullPolicy: Always   # :latest is mutable during iteration; force a re-pull on every restart
+        args:
+          - --stdio
+          # No `uvx` prefix: the package is baked into the image at build time
+          # (see Dockerfile), so this runs the installed console script directly
+          # with no PyPI/network round-trip at pod startup.
+          - "mcp-shell-server"
+          # sse, not streamableHttp — same client-side LiteLLM bug noted in
+          # mcp-bridge-time.yaml (tool discovery silently returns zero tools).
+          # Retry "http" on a future LiteLLM upgrade before assuming permanent.
+          - --outputTransport
+          - sse
+          - --port
+          - "8000"
+        env:
+        # The whitelist itself — see the header comment above before editing.
+        # Matches the "broader dev whitelist" scope chosen for this deployment:
+        # read/inspect commands plus git/npm/uv/python for real dev workflows.
+        - name: ALLOW_COMMANDS
+          value: "ls,cat,grep,find,pwd,df,ps,curl,git,npm,uv,python3,mkdir,mv,sed"
+        - name: MCP_SHELL_DEFAULT_TIMEOUT_SECONDS
+          value: "30"
+        - name: MCP_SHELL_MAX_TIMEOUT_SECONDS
+          value: "300"
+        - name: MCP_SHELL_OUTPUT_LIMIT_BYTES
+          value: "1048576"
+        workingDir: /workspace
+        ports:
+        - containerPort: 8000
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        # Only writable paths in the container — everything else is read-only.
+        # This is the actual containment for a whitelisted command that writes
+        # or downloads something, not the MCP allowlist itself.
+        - name: workspace
+          mountPath: /workspace
+        - name: tmp
+          mountPath: /tmp
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: "1"
+            memory: 512Mi
+      volumes:
+      - name: workspace
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-bridge-shell
+  namespace: llm-core
+spec:
+  selector:
+    app: mcp-bridge
+    mcp-server: shell
+  ports:
+  - port: 8000
+    targetPort: 8000

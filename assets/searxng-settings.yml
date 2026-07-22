@@ -1,0 +1,13 @@
+# Minimal override, merged with SearXNG's own baked-in defaults
+# (use_default_settings: true — see searx/settings_loader.py). The only
+# thing that actually needs changing for our use case: the JSON output
+# format is disabled by default (security default), but mcp-searxng talks
+# to SearXNG's JSON API, not the HTML UI, so it must be enabled. Everything
+# else (secret key, Valkey URL, port, limiter) is set via plain env vars on
+# the Deployment — no need to duplicate those here.
+use_default_settings: true
+
+search:
+  formats:
+    - html
+    - json

@@ -1,8 +1,9 @@
 # API gateway: per-user virtual keys, budgets, dialect translation.
 # The auth + isolation boundary between all clients and the inference engine.
-# Credentials come from the litellm-credentials, tabby-credentials, and
-# litellm-postgres-credentials Secrets (step 04 §3) via secretKeyRef — never inline
-# value: fields, which are readable from the pod spec by anything with pods:get.
+# Credentials come from the litellm-credentials, tabby-credentials,
+# litellm-postgres-credentials, and litellm-sso-credentials (step 17) Secrets via
+# secretKeyRef — never inline value: fields, which are readable from the pod spec
+# by anything with pods:get.
 # State lives in PostgreSQL (postgres.yaml), which LiteLLM requires for virtual
 # keys / budgets / spend — SQLite is no longer supported.
 apiVersion: apps/v1
@@ -64,6 +65,37 @@ spec:
         # where the litellm-database image pre-caches them.
         - name: HOME
           value: /root
+        # LiteLLM's own Admin UI SSO (step 17) — a second, app-layer gate behind
+        # Cloudflare Access on llm-admin.domain.com, using a dedicated Authentik
+        # OAuth2Provider/Application ("litellm-ui", not the "admin-ui" one — each
+        # OIDC-consuming service gets its own client ID/secret, per 14-identity-sso.md).
+        # Redirect URI LiteLLM expects: https://<PROXY_BASE_URL>/sso/callback.
+        - name: PROXY_BASE_URL
+          value: "https://llm-admin.domain.com"
+        - name: GENERIC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: litellm-sso-credentials
+              key: client-id
+        - name: GENERIC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: litellm-sso-credentials
+              key: client-secret
+        # Read these three off https://auth.domain.com/application/o/litellm-ui/.well-known/openid-configuration
+        # once the Authentik application exists — don't hand-guess them.
+        - name: GENERIC_AUTHORIZATION_ENDPOINT
+          value: "https://auth.domain.com/application/o/authorize/"
+        - name: GENERIC_TOKEN_ENDPOINT
+          value: "https://auth.domain.com/application/o/token/"
+        - name: GENERIC_USERINFO_ENDPOINT
+          value: "https://auth.domain.com/application/o/userinfo/"
+        # Second-pass only: log in once via SSO, copy the resulting user_id from the
+        # LiteLLM UI, then set this and redeploy. Promotes exactly one user to Proxy
+        # Admin — verify whether additional admins need manual role promotion
+        # (17-mcp-registry.md §Verification).
+        # - name: PROXY_ADMIN_ID
+        #   value: "<paste-after-first-sso-login>"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

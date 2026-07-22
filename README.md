@@ -133,6 +133,7 @@ Follow in order.
 | 14 | [Identity & SSO](14-identity-sso.md) | Central Authentik IdP; CF Access federation; groups → RBAC |
 | 15 | [Workspaces](15-workspaces.md) | On-demand browser dev environments (3rd client type) |
 | 16 | [Admin UI](16-admin-ui.md) | OIDC-gated control plane for user / key / workspace management |
+| 17 | [MCP registry](17-mcp-registry.md) | LiteLLM as a shared MCP tool registry for Open WebUI + IDE/TUI clients; Supergateway bridges for stdio servers |
 
 Shared config artifacts live in [`assets/`](assets/) and are referenced (not
 duplicated) by the steps above.

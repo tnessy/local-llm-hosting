@@ -1,0 +1,97 @@
+# Native HTTP MCP wrapper around SearXNG (talks to SearXNG's JSON API, not a
+# plugin) — no Supergateway bridge needed, unlike mcp-bridge-time: this image
+# runs its own standalone streamable-HTTP server directly (MCP_HTTP_PORT).
+# No SSE fallback exists for this server — if LiteLLM's client-side
+# streamable-HTTP bug (hit with mcp-bridge-time) resurfaces here, there's no
+# transport to switch to; see 17-mcp-registry.md and surtr-mcp-registry.md
+# for the verification order this requires.
+#
+# Labels deliberately reuse the app: mcp-bridge convention from
+# mcp-bridge-time, even though there's no Supergateway process here — that
+# label is what the existing mcp-bridge-policy (ingress from litellm) and
+# litellm-policy's egress rule (to app: mcp-bridge) already key off, which is
+# why this listens on 8000 (matching those existing hardcoded rules) rather
+# than the more conventional 3000. That reuse only covers ingress from
+# litellm, though — this pod's own egress to the internal `searxng` service
+# is a genuinely new requirement (the shared mcp-bridge-policy's egress rule
+# explicitly excludes private IP ranges, since it was built for reaching
+# public npm/PyPI registries, not internal ClusterIPs), so a small, narrowly
+# scoped NetworkPolicy for that one egress path is still needed — see
+# networkpolicies.yaml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-searxng
+  namespace: llm-core
+  labels:
+    app: mcp-bridge
+    mcp-server: searxng
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-bridge
+      mcp-server: searxng
+  template:
+    metadata:
+      labels:
+        app: mcp-bridge
+        mcp-server: searxng
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: mcp-searxng
+        image: docker.io/isokoliuk/mcp-searxng@sha256:b6727fc950cf1a7501d70f863b563d9fc689d6e33c773296ed845070c5646b48   # latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: SEARXNG_URL
+          value: http://searxng.llm-core:8080
+        - name: MCP_HTTP_PORT
+          value: "8000"
+        - name: MCP_HTTP_HOST
+          value: "0.0.0.0"   # default 127.0.0.1 isn't reachable via the k8s Service
+        - name: MCP_HTTP_HARDEN
+          value: "true"
+        - name: MCP_HTTP_ALLOWED_ORIGINS
+          value: http://mcp-searxng.llm-core:8000   # required by hardened mode, but meaningless
+                                                      # here — this is pure server-to-server traffic
+                                                      # (LiteLLM), no browser ever originates a request
+        - name: MCP_HTTP_ALLOWED_HOSTS
+          value: "mcp-searxng.llm-core:8000,mcp-searxng.llm-core"   # defaults to localhost-only,
+                                                                     # which would reject LiteLLM's
+                                                                     # requests (Host header is the
+                                                                     # Service DNS name, not localhost)
+        - name: MCP_HTTP_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: mcp-searxng-credentials
+              key: auth-token
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-searxng
+  namespace: llm-core
+spec:
+  selector:
+    app: mcp-bridge
+    mcp-server: searxng
+  ports:
+  - port: 8000
+    targetPort: 8000

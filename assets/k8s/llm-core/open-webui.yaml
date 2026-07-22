@@ -66,13 +66,20 @@ spec:
         - name: ENABLE_SIGNUP
           value: "false"              # accounts are created manually (step 07)
         - name: ENABLE_PERSISTENT_CONFIG
-          value: "false"              # env vars are authoritative every boot, not just
-                                      # first boot. Without this, Open WebUI seeds config
-                                      # (incl. the OpenAI connection) from env ONCE, then
-                                      # reads its DB — so the litellm-key minted in step 06
-                                      # (after this pod first boots in step 04) never takes
-                                      # effect and no models appear. Also keeps ENABLE_SIGNUP
-                                      # env-enforced so it can't be persisted back on.
+          value: "true"               # admin-panel settings (tool server connections,
+                                      # OpenAI connection edits, anything set through the
+                                      # UI) need to survive pod restarts — with this false,
+                                      # they live only in process memory and are silently
+                                      # wiped on every restart (step 17 hit this directly).
+                                      # Tradeoff: Open WebUI first boots in step 04, before
+                                      # the litellm-key exists (minted in step 06) — that
+                                      # first boot seeds an empty OpenAI connection into the
+                                      # DB, and seed_defaults only inserts a key if it's not
+                                      # already there, so the real key from step 06 would be
+                                      # silently ignored otherwise. Step 07 §2 has the
+                                      # required one-time fix (confirm/resave the Connection
+                                      # in Admin Settings after step 06's restart) — a normal
+                                      # admin-UI save always overwrites the stale value.
         - name: WEBUI_NAME
           value: Home LLM
         securityContext:
