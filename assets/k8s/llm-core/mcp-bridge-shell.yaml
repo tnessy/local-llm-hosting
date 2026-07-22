@@ -45,8 +45,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: supergateway
-        image: localhost:32000/mcp-shell-server:latest   # pin to digest once verified working — step 04 §6
-        imagePullPolicy: Always   # :latest is mutable during iteration; force a re-pull on every restart
+        image: localhost:32000/mcp-shell-server@sha256:5cc98a7f6dfbaa927f532c08f18358275f4308170d44ac17e6040fafcda95f05   # v1.1.2, pinned per step 04 §6 after verifying the pod came up healthy
         args:
           - --stdio
           # No `uvx` prefix: the package is baked into the image at build time
